@@ -254,7 +254,13 @@ function MainApp() {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => speak("Raphael voice synthesis is active and online.")}
+            onClick={() => {
+              speak(
+                voice === 'ja-JP-female'
+                  ? 'こんにちは！ラファエルです。音声テスト成功です。いつでも命令をどうぞ。'
+                  : 'Raphael voice synthesis is active and online.'
+              );
+            }}
             className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
             title="Click to test Raphael's voice"
           >

@@ -152,6 +152,7 @@ export function RaphaelVisualizerVideo({
           width: '100%',
           height: '100%',
           objectFit: 'cover',
+          backgroundColor: '#020305',
           opacity: activeSlot === 'a' ? 1 : 0,
           ...videoStyle
         }}
@@ -170,25 +171,34 @@ export function RaphaelVisualizerVideo({
           width: '100%',
           height: '100%',
           objectFit: 'cover',
+          backgroundColor: '#020305',
           opacity: activeSlot === 'b' ? 1 : 0,
           ...videoStyle
         }}
       />
-      {showCompletion && (
-        <video
-          ref={completionRef}
-          src={COMPLETION_SRC}
-          muted
-          playsInline
-          autoPlay
-          onError={() => {
-            setBrokenStates((prev) => new Set(prev).add('completed'));
-            setShowCompletion(false);
-          }}
-          onEnded={() => setShowCompletion(false)}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-        />
-      )}
+      <video
+        ref={completionRef}
+        src={COMPLETION_SRC}
+        preload="auto"
+        muted
+        playsInline
+        onError={() => {
+          setBrokenStates((prev) => new Set(prev).add('completed'));
+          setShowCompletion(false);
+        }}
+        onEnded={() => setShowCompletion(false)}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          backgroundColor: '#020305',
+          opacity: showCompletion ? 1 : 0,
+          pointerEvents: 'none',
+          transition: 'opacity 300ms ease'
+        }}
+      />
     </div>
   );
 }

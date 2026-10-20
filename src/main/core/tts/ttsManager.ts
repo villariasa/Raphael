@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import type { VoiceOption } from '../../../shared/ipc';
+import { localizeToJapaneseLady } from './japaneseVoiceLocalizer';
 
 export type TtsResult =
   | { ok: true; buffer: Buffer; mime: string }
@@ -33,6 +34,16 @@ function run(cmd: string, args: string[], input?: string): Promise<void> {
  * of faking a waveform.
  */
 export class TtsManager {
+  private installedPys = new Set<string>();
+
+  private async ensureEdgeTts(py: string): Promise<void> {
+    if (this.installedPys.has(py)) return;
+    this.installedPys.add(py);
+    try {
+      await run(py, ['-m', 'pip', 'install', 'edge-tts']);
+    } catch {}
+  }
+
   async synthesizeToWav(text: string, voice: VoiceOption = 'en-US-female'): Promise<TtsResult> {
     // Strip control chars/newlines and cap length before this text reaches
     // any synthesizer — it may originate from LLM output, not just the user.
@@ -41,14 +52,33 @@ export class TtsManager {
 
     const tmpFile = path.join(os.tmpdir(), `raphael-tts-${crypto.randomUUID()}.wav`);
 
+    // 1. Try high-quality Neural TTS (edge-tts) for Japanese lady and English
+    const isJapanese = voice === 'ja-JP-female' || /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(clean);
+    let speechText = clean;
+    if (isJapanese) {
+      speechText = await localizeToJapaneseLady(clean);
+    }
+    const neuralVoice = isJapanese ? 'ja-JP-NanamiNeural' : 'en-US-JennyNeural';
+    const neuralTmp = path.join(os.tmpdir(), `raphael-neural-${crypto.randomUUID()}.mp3`);
+
+    const pythonCandidates = process.platform === 'win32' ? ['python', 'py', 'python3'] : ['python3', 'python'];
+    for (const py of pythonCandidates) {
+      try {
+        await run(py, ['-m', 'edge_tts', '--voice', neuralVoice, '--text', speechText, '--write-media', neuralTmp]);
+        const buffer = await fs.readFile(neuralTmp);
+        fs.unlink(neuralTmp).catch(() => {});
+        if (buffer && buffer.length > 100) {
+          return { ok: true, buffer, mime: 'audio/mp3' };
+        }
+      } catch {
+        // Try installing edge-tts if not yet present, then try next candidate
+        this.ensureEdgeTts(py).catch(() => {});
+      }
+    }
+
     try {
       if (process.platform === 'win32') {
-        // Windows SAPI via System.Speech, rendered to a WAV file. Culture
-        // hint picks a matching installed voice (e.g. a Japanese language
-        // pack's voice); if the OS has none installed for that culture,
-        // SelectVoiceByHints throws and we silently keep whatever voice
-        // SAPI defaulted to — never a hard failure over a missing voice.
-        const escaped = clean.replace(/'/g, "''");
+        const escaped = speechText.replace(/'/g, "''");
         const culture = voice === 'ja-JP-female' ? 'ja-JP' : 'en-US';
         const script = [
           'Add-Type -AssemblyName System.Speech;',
@@ -65,9 +95,9 @@ export class TtsManager {
         // actually installed rather than failing the whole request.
         const preferredVoice = voice === 'ja-JP-female' ? 'Kyoko' : 'Samantha';
         try {
-          await run('say', ['-v', preferredVoice, '-o', tmpFile, '--data-format=LEI16@22050', '--', clean]);
+          await run('say', ['-v', preferredVoice, '-o', tmpFile, '--data-format=LEI16@22050', '--', speechText]);
         } catch {
-          await run('say', ['-o', tmpFile, '--data-format=LEI16@22050', '--', clean]);
+          await run('say', ['-o', tmpFile, '--data-format=LEI16@22050', '--', speechText]);
         }
       } else {
         // Linux: prefer espeak-ng, fall back to espeak. Neither supports a
@@ -77,7 +107,7 @@ export class TtsManager {
         if (!engine) {
           return { ok: false, reason: 'No TTS engine found on this system (install espeak-ng, or run on Windows/macOS).' };
         }
-        if (clean.startsWith('-')) {
+        if (speechText.startsWith('-')) {
           return { ok: false, reason: 'Text cannot start with "-".' };
         }
         // en+f3 is espeak's built-in female voice variant. espeak-ng's
@@ -85,7 +115,7 @@ export class TtsManager {
         // at least speak Japanese text phonetically rather than silently
         // falling back to English.
         const espeakVoice = voice === 'ja-JP-female' ? 'ja' : 'en+f3';
-        await run(engine, ['-v', espeakVoice, '-w', tmpFile, clean]);
+        await run(engine, ['-v', espeakVoice, '-w', tmpFile, speechText]);
       }
 
       const buffer = await fs.readFile(tmpFile);
