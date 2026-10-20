@@ -33,27 +33,62 @@ function run(cmd: string, args: string[], input?: string): Promise<void> {
  * of faking a waveform.
  */
 export class TtsManager {
+  private jaVoiceChecked: boolean | null = null;
+
+  async isVoiceInstalled(voice: VoiceOption): Promise<boolean> {
+    if (voice === 'en-US-female') return true;
+    if (this.jaVoiceChecked !== null) return this.jaVoiceChecked;
+
+    try {
+      if (process.platform === 'win32') {
+        const script = `
+Add-Type -AssemblyName System.Speech
+$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
+$found = $synth.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -like 'ja*' -or $_.VoiceInfo.Name -like '*Haruka*' -or $_.VoiceInfo.Name -like '*Ayumi*' }
+if ($found) { Write-Output "YES" } else { Write-Output "NO" }
+`;
+        const tmpPs = path.join(os.tmpdir(), `check-voice-${crypto.randomUUID()}.ps1`);
+        await fs.writeFile(tmpPs, script, 'utf8');
+        let out = '';
+        const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpPs]);
+        child.stdout.on('data', (d) => (out += d.toString()));
+        await new Promise((r) => child.on('close', r));
+        await fs.unlink(tmpPs).catch(() => {});
+        this.jaVoiceChecked = out.includes('YES');
+        return this.jaVoiceChecked;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async synthesizeToWav(text: string, voice: VoiceOption = 'en-US-female'): Promise<TtsResult> {
     // Strip control chars/newlines and cap length before this text reaches
     // any synthesizer — it may originate from LLM output, not just the user.
     const clean = text.trim().replace(/[\x00-\x09\x0b-\x1f\x7f]/g, ' ').slice(0, 2000);
     if (!clean) return { ok: false, reason: 'Empty text.' };
 
+    if (voice === 'ja-JP-female') {
+      const installed = await this.isVoiceInstalled('ja-JP-female');
+      if (!installed) {
+        return {
+          ok: false,
+          reason: 'Japanese voice (Microsoft Haruka) is not installed on this PC. Please install it in Windows Settings > Time & Language > Speech > Add voices > Japanese.'
+        };
+      }
+    }
+
     const tmpFile = path.join(os.tmpdir(), `raphael-tts-${crypto.randomUUID()}.wav`);
 
     try {
       if (process.platform === 'win32') {
-        // Windows SAPI via System.Speech, rendered to a WAV file. Culture
-        // hint picks a matching installed voice (e.g. a Japanese language
-        // pack's voice); if the OS has none installed for that culture,
-        // SelectVoiceByHints throws and we silently keep whatever voice
-        // SAPI defaulted to — never a hard failure over a missing voice.
         const escaped = clean.replace(/'/g, "''");
         const culture = voice === 'ja-JP-female' ? 'ja-JP' : 'en-US';
         const script = [
           'Add-Type -AssemblyName System.Speech;',
           '$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer;',
-          `try { $synth.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female, [System.Speech.Synthesis.VoiceAge]::NotSet, 0, (New-Object System.Globalization.CultureInfo('${culture}'))) } catch { try { $synth.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female) } catch {} }`,
+          `$synth.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female, [System.Speech.Synthesis.VoiceAge]::NotSet, 0, (New-Object System.Globalization.CultureInfo('${culture}')));`,
           `$synth.SetOutputToWaveFile('${tmpFile.replace(/\\/g, '\\\\')}');`,
           `$synth.Speak('${escaped}');`,
           '$synth.Dispose();'

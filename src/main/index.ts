@@ -227,6 +227,15 @@ app.whenReady().then(() => {
     activity.append(`Voice changed to ${voice}.`, 'info');
   });
 
+  ipcMain.handle(IPC.isVoiceInstalled, async (_evt, voice) => {
+    return ttsManager.isVoiceInstalled(voice);
+  });
+
+  ipcMain.handle(IPC.openVoiceSettings, async () => {
+    const { spawn } = await import('child_process');
+    spawn('cmd.exe', ['/c', 'start', '""', 'ms-settings:speech'], { detached: true });
+  });
+
   ipcMain.handle(IPC.openFloatingVisualizer, async () => {
     createFloatingWindow();
   });

@@ -104,6 +104,8 @@ export interface RaphaelApi {
   setAlwaysAllowAll(enabled: boolean): Promise<void>;
   getVoice(): Promise<VoiceOption>;
   setVoice(voice: VoiceOption): Promise<void>;
+  isVoiceInstalled(voice: VoiceOption): Promise<boolean>;
+  openVoiceSettings(): Promise<void>;
 
   onPermissionRequest(cb: (req: PermissionRequest) => void): () => void;
   onTaskStatus(cb: (update: TaskStatusUpdate) => void): () => void;
@@ -129,6 +131,8 @@ export const IPC = {
   setAlwaysAllowAll: 'raphael:setAlwaysAllowAll',
   getVoice: 'raphael:getVoice',
   setVoice: 'raphael:setVoice',
+  isVoiceInstalled: 'raphael:isVoiceInstalled',
+  openVoiceSettings: 'raphael:openVoiceSettings',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',
