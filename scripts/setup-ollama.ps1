@@ -14,7 +14,8 @@ $hasOllama = (Get-Command ollama -ErrorAction SilentlyContinue) -or (Test-Path $
 
 if ($hasOllama) {
     Write-Host "[OK] Ollama is already installed on this machine."
-} else {
+    exit 0
+}
     Write-Host "[INFO] Ollama not found. Initiating silent installation..."
     $installerPath = "$env:TEMP\OllamaSetup.exe"
 
@@ -37,16 +38,6 @@ if ($hasOllama) {
         Write-Warning "[WARN] Could not automatically download Ollama: $($_.Exception.Message)"
         Write-Host "[INFO] Raphael will prompt to complete setup when launched."
     }
-}
-
-# Start the Ollama background daemon if installed
-$ollamaBin = if (Test-Path $localOllama) { $localOllama } elseif (Test-Path $systemOllama) { $systemOllama } else { "ollama.exe" }
-try {
-    Write-Host "[INFO] Starting Ollama background service..."
-    Start-Process -FilePath $ollamaBin -ArgumentList "serve" -WindowStyle Hidden -ErrorAction SilentlyContinue
-    Write-Host "[OK] Ollama service triggered."
-} catch {
-    # Ignore if fails; Raphael app will handle on launch
 }
 
 exit 0

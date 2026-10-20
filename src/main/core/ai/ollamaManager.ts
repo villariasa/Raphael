@@ -213,6 +213,17 @@ export class OllamaManager {
       return true;
     }
 
+    // If user already has any model set up in Ollama, reuse it without downloading again
+    if (models.length > 0) {
+      const activeModel = models[0];
+      this.setProgress({
+        stage: 'ready',
+        model: activeModel,
+        message: `Using installed model (${activeModel}).`
+      });
+      return true;
+    }
+
     this.setProgress({
       stage: 'downloading_model',
       message: `Downloading ${this.targetModel} AI model (~2.0 GB)...`,

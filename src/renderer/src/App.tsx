@@ -163,21 +163,24 @@ function MainApp() {
     <div className="flex h-screen flex-col">
       <header className="flex items-center justify-between border-b border-raphael-border px-5 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold tracking-wide text-raphael-text">RAPHAEL</span>
-          <span className="text-xs text-raphael-textMuted">v0.1 · Phase 1 MVP</span>
+          <span className="text-sm font-bold tracking-wide text-raphael-text">RAPHAEL</span>
+          <span className="rounded bg-raphael-accent/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-raphael-accent">
+            v2.0
+          </span>
         </div>
+
         <div className="flex items-center gap-2">
           <button
             onClick={() => setVisualizerMode((m) => (m === 'embedded' ? 'large' : 'embedded'))}
             className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
           >
-            {visualizerMode === 'embedded' ? 'Expand visualizer' : 'Collapse visualizer'}
+            {visualizerMode === 'embedded' ? 'Expand' : 'Collapse'}
           </button>
           <button
             onClick={() => window.raphael.openFloatingVisualizer()}
             className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
           >
-            Float visualizer
+            Float
           </button>
           <button
             onClick={() => setShowDebug((v) => !v)}
