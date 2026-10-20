@@ -28,12 +28,12 @@ export class TaskManager {
       .catch((err) => {
         if (err instanceof TaskAborted) {
           this.activity.append('Task stopped by user.', 'warn');
-          onStatus({ taskId, status: 'Stopped.', done: true, error: 'stopped' });
+          onStatus({ taskId, status: 'Stopped, My Liege.', done: true, error: 'stopped' });
           return;
         }
         const message = err instanceof Error ? err.message : String(err);
         this.activity.append(`Task failed: ${message}`, 'error');
-        onStatus({ taskId, status: `Failed: ${message}`, done: true, error: message });
+        onStatus({ taskId, status: `My Liege, that failed: ${message}`, done: true, error: message });
       })
       .finally(() => {
         this.tasks.delete(taskId);

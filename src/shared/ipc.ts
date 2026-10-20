@@ -70,6 +70,21 @@ export type SpeakResult =
   | { ok: true; audioBase64: string; mime: string }
   | { ok: false; reason: string };
 
+/**
+ * Voice persona for TTS. Each maps to a real OS voice request (Windows
+ * SAPI culture/gender hint, macOS `say -v`, or espeak-ng `-v`) — not a
+ * cosmetic label. Non-English voices depend on what's actually installed
+ * on the user's machine (e.g. Windows only ships a Japanese voice if the
+ * Japanese language pack is installed); when unavailable the OS silently
+ * falls back to its default voice rather than failing.
+ */
+export type VoiceOption = 'en-US-female' | 'ja-JP-female';
+
+export const VOICE_OPTIONS: Array<{ id: VoiceOption; label: string }> = [
+  { id: 'en-US-female', label: 'English (US) — Female' },
+  { id: 'ja-JP-female', label: '日本語 (Japanese) — Female' }
+];
+
 /** The ONLY surface the renderer can call into main through. */
 export interface RaphaelApi {
   getEnvironmentProfile(): Promise<EnvironmentProfile>;
@@ -87,6 +102,8 @@ export interface RaphaelApi {
   closeFloatingVisualizer(): Promise<void>;
   getAlwaysAllowAll(): Promise<boolean>;
   setAlwaysAllowAll(enabled: boolean): Promise<void>;
+  getVoice(): Promise<VoiceOption>;
+  setVoice(voice: VoiceOption): Promise<void>;
 
   onPermissionRequest(cb: (req: PermissionRequest) => void): () => void;
   onTaskStatus(cb: (update: TaskStatusUpdate) => void): () => void;
@@ -110,6 +127,8 @@ export const IPC = {
   closeFloatingVisualizer: 'raphael:closeFloatingVisualizer',
   getAlwaysAllowAll: 'raphael:getAlwaysAllowAll',
   setAlwaysAllowAll: 'raphael:setAlwaysAllowAll',
+  getVoice: 'raphael:getVoice',
+  setVoice: 'raphael:setVoice',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',

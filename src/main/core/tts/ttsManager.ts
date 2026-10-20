@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
+import type { VoiceOption } from '../../../shared/ipc';
 
 export type TtsResult =
   | { ok: true; buffer: Buffer; mime: string }
@@ -32,7 +33,7 @@ function run(cmd: string, args: string[], input?: string): Promise<void> {
  * of faking a waveform.
  */
 export class TtsManager {
-  async synthesizeToWav(text: string): Promise<TtsResult> {
+  async synthesizeToWav(text: string, voice: VoiceOption = 'en-US-female'): Promise<TtsResult> {
     // Strip control chars/newlines and cap length before this text reaches
     // any synthesizer — it may originate from LLM output, not just the user.
     const clean = text.trim().replace(/[\x00-\x09\x0b-\x1f\x7f]/g, ' ').slice(0, 2000);
@@ -42,25 +43,29 @@ export class TtsManager {
 
     try {
       if (process.platform === 'win32') {
-        // Windows SAPI via System.Speech, rendered to a WAV file. Raphael's
-        // voice is female (§21 personality) — SelectVoiceByHints picks
-        // whichever installed voice matches, and silently keeps the
-        // default if the OS has no female voice installed at all.
+        // Windows SAPI via System.Speech, rendered to a WAV file. Culture
+        // hint picks a matching installed voice (e.g. a Japanese language
+        // pack's voice); if the OS has none installed for that culture,
+        // SelectVoiceByHints throws and we silently keep whatever voice
+        // SAPI defaulted to — never a hard failure over a missing voice.
         const escaped = clean.replace(/'/g, "''");
+        const culture = voice === 'ja-JP-female' ? 'ja-JP' : 'en-US';
         const script = [
           'Add-Type -AssemblyName System.Speech;',
           '$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer;',
-          'try { $synth.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female) } catch {}',
+          `try { $synth.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female, [System.Speech.Synthesis.VoiceAge]::NotSet, 0, (New-Object System.Globalization.CultureInfo('${culture}'))) } catch { try { $synth.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female) } catch {} }`,
           `$synth.SetOutputToWaveFile('${tmpFile.replace(/\\/g, '\\\\')}');`,
           `$synth.Speak('${escaped}');`,
           '$synth.Dispose();'
         ].join(' ');
         await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
       } else if (process.platform === 'darwin') {
-        // Prefer a known female voice; fall back to the system default if
-        // it isn't installed rather than failing the whole request.
+        // Kyoko ships by default on macOS for Japanese; Samantha for US
+        // English. Fall back to the system default if a voice isn't
+        // actually installed rather than failing the whole request.
+        const preferredVoice = voice === 'ja-JP-female' ? 'Kyoko' : 'Samantha';
         try {
-          await run('say', ['-v', 'Samantha', '-o', tmpFile, '--data-format=LEI16@22050', '--', clean]);
+          await run('say', ['-v', preferredVoice, '-o', tmpFile, '--data-format=LEI16@22050', '--', clean]);
         } catch {
           await run('say', ['-o', tmpFile, '--data-format=LEI16@22050', '--', clean]);
         }
@@ -75,8 +80,12 @@ export class TtsManager {
         if (clean.startsWith('-')) {
           return { ok: false, reason: 'Text cannot start with "-".' };
         }
-        // en+f3 is espeak's built-in female voice variant.
-        await run(engine, ['-v', 'en+f3', '-w', tmpFile, clean]);
+        // en+f3 is espeak's built-in female voice variant. espeak-ng's
+        // Japanese voice ("ja") has no distinct gender variants, but will
+        // at least speak Japanese text phonetically rather than silently
+        // falling back to English.
+        const espeakVoice = voice === 'ja-JP-female' ? 'ja' : 'en+f3';
+        await run(engine, ['-v', espeakVoice, '-w', tmpFile, clean]);
       }
 
       const buffer = await fs.readFile(tmpFile);

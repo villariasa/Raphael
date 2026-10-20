@@ -9,7 +9,15 @@ export function scopeKeyFor(action: SafeAction): string {
   switch (action.action) {
     case 'install_application':
     case 'open_application':
+    case 'close_application':
       return `${action.action}:${String(action.params.application ?? action.params.name ?? '*')}`;
+    case 'open_url':
+    case 'search_browser':
+      // Coarse-grained: a per-URL/per-query grant would be meaningless
+      // (every search has a different URL) — "always allow" here means
+      // "always allow browser control", matching §18's BROWSER_CONTROL
+      // permission category.
+      return 'browser_control';
     case 'create_folder':
     case 'create_file':
     case 'read_file':

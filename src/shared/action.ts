@@ -18,6 +18,9 @@ export const ActionKind = z.enum([
   'read_file',
   'modify_file',
   'open_application',
+  'close_application',
+  'open_url',
+  'search_browser',
   'move_window',
   'download_file',
   'install_application',
@@ -39,6 +42,9 @@ export const ACTION_RISK: Record<ActionKind, RiskLevel> = {
   read_file: 'low',
   modify_file: 'medium',
   open_application: 'medium',
+  close_application: 'medium',
+  open_url: 'medium',
+  search_browser: 'medium',
   move_window: 'medium',
   download_file: 'medium',
   install_application: 'high',
@@ -53,8 +59,16 @@ export const IMPLEMENTED_ACTION_KINDS: ActionKind[] = [
   'read_system_info',
   'create_folder',
   'open_application',
-  'execute_command',
-  'create_file'
+  'close_application',
+  'open_url',
+  'search_browser',
+  'create_file',
+  // execute_command stays implemented for the explicit, literally-typed
+  // "run: <command>" path (planner.ts RUN_COMMAND_PATTERNS) — HIGH risk,
+  // permission-gated. It is deliberately NOT offered to the LLM's
+  // free-form planning fallback (§20: the AI must never invent and run
+  // its own shell commands) — see Planner.aiPlan().
+  'execute_command'
 ];
 
 export const SafeAction = z.object({

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { RaphaelApi, PermissionRequest, TaskStatusUpdate, ActivityEntry, PermissionDecision, IPC as IpcType } from '../shared/ipc';
+import type { RaphaelApi, PermissionRequest, TaskStatusUpdate, ActivityEntry, PermissionDecision, VoiceOption, IPC as IpcType } from '../shared/ipc';
 
 const IPC: typeof IpcType = {
   getEnvironmentProfile: 'raphael:getEnvironmentProfile',
@@ -17,6 +17,8 @@ const IPC: typeof IpcType = {
   closeFloatingVisualizer: 'raphael:closeFloatingVisualizer',
   getAlwaysAllowAll: 'raphael:getAlwaysAllowAll',
   setAlwaysAllowAll: 'raphael:setAlwaysAllowAll',
+  getVoice: 'raphael:getVoice',
+  setVoice: 'raphael:setVoice',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',
@@ -44,6 +46,8 @@ const api: RaphaelApi = {
   closeFloatingVisualizer: () => ipcRenderer.invoke(IPC.closeFloatingVisualizer),
   getAlwaysAllowAll: () => ipcRenderer.invoke(IPC.getAlwaysAllowAll),
   setAlwaysAllowAll: (enabled: boolean) => ipcRenderer.invoke(IPC.setAlwaysAllowAll, enabled),
+  getVoice: () => ipcRenderer.invoke(IPC.getVoice),
+  setVoice: (voice: VoiceOption) => ipcRenderer.invoke(IPC.setVoice, voice),
 
   onPermissionRequest: (cb: (req: PermissionRequest) => void) => {
     const listener = (_: unknown, req: PermissionRequest) => cb(req);

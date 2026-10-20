@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { PermissionRequest, TaskStatusUpdate } from '../../../shared/ipc';
-import { RaphaelVisualizer } from './RaphaelVisualizer';
+import { RaphaelVisualizerVideo as RaphaelVisualizer } from './RaphaelVisualizerVideo';
 import { deriveRaphaelState } from './deriveState';
 import { DEFAULT_TUNABLES, SILENT_AUDIO } from './types';
 

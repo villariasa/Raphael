@@ -11,6 +11,7 @@ import { PermissionGate } from './core/permissions/permissionGate';
 import { Executor } from './core/executor/executor';
 import { TaskManager } from './core/executor/taskManager';
 import { ActivityStore } from './storage/activityStore';
+import { SettingsStore } from './storage/settingsStore';
 import { CursorOverlay } from './ui/cursorOverlay';
 import { TtsManager } from './core/tts/ttsManager';
 
@@ -20,6 +21,7 @@ const OLLAMA_MODEL = process.env.RAPHAEL_MODEL ?? 'llama3.2';
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 const activity = new ActivityStore(DATA_DIR);
+const settingsStore = new SettingsStore(DATA_DIR);
 const permissionStore = new PermissionStore(DATA_DIR);
 const permissionGate = new PermissionGate(permissionStore);
 const ai = new OllamaProvider();
@@ -210,12 +212,19 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle(IPC.speak, async (_evt, text: string) => {
-    const result = await ttsManager.synthesizeToWav(text);
+    const result = await ttsManager.synthesizeToWav(text, settingsStore.getVoice());
     if (!result.ok) {
       activity.append(`TTS unavailable: ${result.reason}`, 'warn');
       return { ok: false, reason: result.reason };
     }
     return { ok: true, audioBase64: result.buffer.toString('base64'), mime: result.mime };
+  });
+
+  ipcMain.handle(IPC.getVoice, async () => settingsStore.getVoice());
+
+  ipcMain.handle(IPC.setVoice, async (_evt, voice) => {
+    settingsStore.setVoice(voice);
+    activity.append(`Voice changed to ${voice}.`, 'info');
   });
 
   ipcMain.handle(IPC.openFloatingVisualizer, async () => {

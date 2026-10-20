@@ -6,6 +6,7 @@ import { detectEnvironment } from '../environment/detector';
 import { createFolder, verifyFolderExists } from '../../automation/filesystem/createFolder';
 import { createFile, verifyFileExists } from '../../automation/filesystem/createFile';
 import { openApplication } from '../../automation/apps/openApp';
+import { closeApplication, openUrlInBrowser, buildSearchUrl } from '../../automation/apps/appLauncher';
 import { executeCommand } from '../../automation/shell/executeCommand';
 
 export class TaskAborted extends Error {
@@ -74,7 +75,7 @@ export class Executor {
       await this.executeStep(step, task, onStatus, i, plan.steps.length);
     }
 
-    onStatus({ taskId: task.taskId, status: 'Completed.', done: true });
+    onStatus({ taskId: task.taskId, status: 'Handled, My Liege.', done: true });
   }
 
   private async executeStep(
@@ -116,8 +117,54 @@ export class Executor {
       case 'open_application': {
         const appName = String(step.params.app ?? step.params.name ?? step.params.application ?? '').trim();
         const targetPath = step.params.path ? String(step.params.path).trim() : undefined;
-        progress(`Opening application "${appName}"...`);
+        progress(`Opening "${appName}"...`);
+        progress(`Verifying "${appName}" actually started...`);
         const res = await openApplication(appName, targetPath);
+        // §17/§21/§22: a launch command not throwing is not success — only
+        // a verified running process is. Unverified launches are reported
+        // as real failures, never silently upgraded to "completed".
+        if (!res.success) {
+          this.activity.append(res.detail, 'error');
+          throw new Error(res.detail);
+        }
+        this.activity.append(res.detail, 'success');
+        return;
+      }
+      case 'close_application': {
+        const appName = String(step.params.app ?? step.params.name ?? step.params.application ?? '').trim();
+        progress(`Closing "${appName}"...`);
+        const res = await closeApplication(appName);
+        if (!res.success) {
+          this.activity.append(res.detail, 'error');
+          throw new Error(res.detail);
+        }
+        this.activity.append(res.detail, 'success');
+        return;
+      }
+      case 'open_url': {
+        const url = String(step.params.url ?? '').trim();
+        const normalizedUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+        progress(`Opening ${normalizedUrl}...`);
+        progress('Verifying a browser actually opened...');
+        const res = await openUrlInBrowser(normalizedUrl);
+        if (!res.success) {
+          this.activity.append(res.detail, 'error');
+          throw new Error(res.detail);
+        }
+        this.activity.append(res.detail, 'success');
+        return;
+      }
+      case 'search_browser': {
+        const query = String(step.params.query ?? '').trim();
+        const engine = (step.params.engine as 'google' | 'bing' | 'duckduckgo') ?? 'google';
+        const url = buildSearchUrl(query, engine);
+        progress(`Searching for "${query}"...`);
+        progress('Verifying a browser actually opened...');
+        const res = await openUrlInBrowser(url);
+        if (!res.success) {
+          this.activity.append(res.detail, 'error');
+          throw new Error(res.detail);
+        }
         this.activity.append(res.detail, 'success');
         return;
       }

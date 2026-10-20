@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ActivityEntry, EnvironmentProfile, AiStatus, PermissionRequest, TaskStatusUpdate, PermissionDecision } from '../../shared/ipc';
+import type { ActivityEntry, EnvironmentProfile, AiStatus, PermissionRequest, TaskStatusUpdate, PermissionDecision, VoiceOption } from '../../shared/ipc';
+import { VOICE_OPTIONS } from '../../shared/ipc';
 import type { RaphaelState } from './visualizer/types';
 import { StatusPill } from './components/StatusPill';
 import { CurrentTaskPanel } from './panels/CurrentTaskPanel';
 import { ActivityPanel } from './panels/ActivityPanel';
 import { PermissionDialog } from './panels/PermissionDialog';
-import { RaphaelVisualizer, VisualizerDebugStats } from './visualizer/RaphaelVisualizer';
+import { VisualizerDebugStats } from './visualizer/RaphaelVisualizer';
+import { RaphaelVisualizerVideo as RaphaelVisualizer } from './visualizer/RaphaelVisualizerVideo';
 import { DebugPanel } from './visualizer/DebugPanel';
 import { FloatingVisualizer } from './visualizer/FloatingVisualizer';
 import { useAudioReactive, playSpeechWav, resumeAudioContext } from './visualizer/useAudioReactive';
@@ -34,6 +36,7 @@ function MainApp() {
   const [paused, setPaused] = useState(false);
   const [taskError, setTaskError] = useState(false);
   const [allPermissions, setAllPermissions] = useState(false);
+  const [voice, setVoice] = useState<VoiceOption>('en-US-female');
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const summaryRef = useRef<string | null>(null);
 
@@ -114,6 +117,7 @@ function MainApp() {
     }).catch(console.error);
     window.raphael.getActivity().then(setActivity).catch(console.error);
     window.raphael.getAlwaysAllowAll?.().then(setAllPermissions).catch(console.error);
+    window.raphael.getVoice?.().then(setVoice).catch(console.error);
 
     const offPermission = window.raphael.onPermissionRequest?.(setPermissionRequest);
     const offActivity = window.raphael.onActivity?.((entry) => setActivity((prev) => [...prev, entry]));
@@ -238,6 +242,22 @@ function MainApp() {
           >
             Debug
           </button>
+          <select
+            value={voice}
+            onChange={async (e) => {
+              const next = e.target.value as VoiceOption;
+              setVoice(next);
+              await window.raphael.setVoice?.(next);
+            }}
+            className="rounded-md border border-raphael-border bg-raphael-surface px-2 py-1 text-xs text-raphael-textMuted hover:text-raphael-text focus:outline-none"
+            title="Raphael's speaking voice"
+          >
+            {VOICE_OPTIONS.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+              </option>
+            ))}
+          </select>
           <StatusPill label="Environment" ok={!!env?.supported} detail={env ? env.os : 'detecting...'} />
           <StatusPill
             label="Ollama"

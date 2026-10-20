@@ -76,8 +76,14 @@ export class PermissionGate {
 }
 
 function describeAction(action: SafeAction): string {
-  const parts = [action.description];
-  if (action.requiresAdmin) parts.push('This requires administrator privileges.');
+  const parts = [`My Liege, ${lowerFirst(action.description)}`];
+  if (action.requiresAdmin) parts.push('This needs administrator privileges.');
   if (action.permissions.length) parts.push(`Permissions needed: ${action.permissions.join(', ')}.`);
+  parts.push('I need your authorization.');
   return parts.join(' ');
+}
+
+function lowerFirst(text: string): string {
+  if (!text) return text;
+  return text[0].toLowerCase() + text.slice(1);
 }
