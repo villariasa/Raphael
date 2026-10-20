@@ -12,6 +12,7 @@ import { Executor } from './core/executor/executor';
 import { TaskManager } from './core/executor/taskManager';
 import { ActivityStore } from './storage/activityStore';
 import { CursorOverlay } from './ui/cursorOverlay';
+import { TtsManager } from './core/tts/ttsManager';
 
 const DATA_DIR = path.join(app.getPath('userData'), 'raphael-data');
 const OLLAMA_MODEL = process.env.RAPHAEL_MODEL ?? 'llama3.2';
@@ -25,8 +26,17 @@ const planner = new Planner(ai, OLLAMA_MODEL);
 const executor = new Executor(permissionGate, activity);
 const taskManager = new TaskManager(executor, activity);
 const cursorOverlay = new CursorOverlay();
+const ttsManager = new TtsManager();
 
 let mainWindow: BrowserWindow | null = null;
+let floatingWindow: BrowserWindow | null = null;
+
+/** Broadcast an event to every live Raphael window (main + floating visualizer). */
+function broadcast(channel: string, payload: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(channel, payload);
+  }
+}
 
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
@@ -65,12 +75,54 @@ function createMainWindow(): void {
   mainWindow.on('closed', () => {
     taskManager.stopAll();
     cursorOverlay.hide();
+    floatingWindow?.close();
     mainWindow = null;
   });
 }
 
+/**
+ * Floating visualizer (§9): a real, independently closeable window —
+ * never a borderless permanent overlay. It belongs to Raphael, not the OS
+ * desktop, and closing it only closes itself.
+ */
+function createFloatingWindow(): void {
+  if (floatingWindow) {
+    floatingWindow.focus();
+    return;
+  }
+  floatingWindow = new BrowserWindow({
+    width: 420,
+    height: 420,
+    minWidth: 220,
+    minHeight: 220,
+    backgroundColor: '#05070a',
+    title: 'Raphael — Visualizer',
+    frame: false,
+    resizable: true,
+    alwaysOnTop: false,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+
+  const devServerUrl = process.env.RAPHAEL_DEV_SERVER_URL;
+  const query = '?mode=floating';
+  if (devServerUrl) {
+    floatingWindow.loadURL(devServerUrl + query);
+  } else {
+    floatingWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { search: 'mode=floating' });
+  }
+
+  floatingWindow.on('closed', () => {
+    floatingWindow = null;
+  });
+}
+
 permissionGate.onAsk((req) => {
-  mainWindow?.webContents.send(IPC.permissionRequestEvent, req);
+  broadcast(IPC.permissionRequestEvent, req);
 });
 
 app.whenReady().then(() => {
@@ -78,7 +130,7 @@ app.whenReady().then(() => {
   activity.append('Raphael started.', 'info');
 
   ollamaManager.onProgress((progress) => {
-    mainWindow?.webContents.send(IPC.aiSetupEvent, progress);
+    broadcast(IPC.aiSetupEvent, progress);
     if (progress.stage === 'ready') {
       activity.append(`AI runtime ready: ${progress.model}`, 'success');
     } else if (progress.stage === 'error') {
@@ -119,7 +171,7 @@ app.whenReady().then(() => {
     activity.append(`User command: "${text}"`, 'info');
     const plan = await planner.plan(text);
     const taskId = taskManager.start(plan, (update) => {
-      mainWindow?.webContents.send(IPC.taskStatusEvent, update);
+      broadcast(IPC.taskStatusEvent, update);
     });
     return { taskId, plan };
   });
@@ -146,6 +198,23 @@ app.whenReady().then(() => {
     activity.clear();
   });
 
+  ipcMain.handle(IPC.speak, async (_evt, text: string) => {
+    const result = await ttsManager.synthesizeToWav(text);
+    if (!result.ok) {
+      activity.append(`TTS unavailable: ${result.reason}`, 'warn');
+      return { ok: false, reason: result.reason };
+    }
+    return { ok: true, audioBase64: result.buffer.toString('base64'), mime: result.mime };
+  });
+
+  ipcMain.handle(IPC.openFloatingVisualizer, async () => {
+    createFloatingWindow();
+  });
+
+  ipcMain.handle(IPC.closeFloatingVisualizer, async () => {
+    floatingWindow?.close();
+  });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
@@ -155,6 +224,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   taskManager.stopAll();
   cursorOverlay.hide();
+  floatingWindow?.close();
 });
 
 app.on('window-all-closed', () => {

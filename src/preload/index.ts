@@ -12,6 +12,9 @@ const IPC: typeof IpcType = {
   getActivity: 'raphael:getActivity',
   clearActivity: 'raphael:clearActivity',
   triggerAiSetup: 'raphael:triggerAiSetup',
+  speak: 'raphael:speak',
+  openFloatingVisualizer: 'raphael:openFloatingVisualizer',
+  closeFloatingVisualizer: 'raphael:closeFloatingVisualizer',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',
@@ -34,6 +37,9 @@ const api: RaphaelApi = {
   getActivity: () => ipcRenderer.invoke(IPC.getActivity),
   clearActivity: () => ipcRenderer.invoke(IPC.clearActivity),
   triggerAiSetup: () => ipcRenderer.invoke(IPC.triggerAiSetup),
+  speak: (text: string) => ipcRenderer.invoke(IPC.speak, text),
+  openFloatingVisualizer: () => ipcRenderer.invoke(IPC.openFloatingVisualizer),
+  closeFloatingVisualizer: () => ipcRenderer.invoke(IPC.closeFloatingVisualizer),
 
   onPermissionRequest: (cb: (req: PermissionRequest) => void) => {
     const listener = (_: unknown, req: PermissionRequest) => cb(req);

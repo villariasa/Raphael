@@ -54,6 +54,22 @@ export interface AiStatus {
   error?: string;
 }
 
+/** Raphael's visual/behavioral state, driven by real signals only (§7). */
+export type RaphaelState =
+  | 'idle'
+  | 'listening'
+  | 'thinking'
+  | 'researching'
+  | 'waiting_for_permission'
+  | 'executing'
+  | 'speaking'
+  | 'completed'
+  | 'error';
+
+export type SpeakResult =
+  | { ok: true; audioBase64: string; mime: string }
+  | { ok: false; reason: string };
+
 /** The ONLY surface the renderer can call into main through. */
 export interface RaphaelApi {
   getEnvironmentProfile(): Promise<EnvironmentProfile>;
@@ -66,6 +82,9 @@ export interface RaphaelApi {
   resumeTask(taskId: string): Promise<void>;
   getActivity(): Promise<ActivityEntry[]>;
   clearActivity(): Promise<void>;
+  speak(text: string): Promise<SpeakResult>;
+  openFloatingVisualizer(): Promise<void>;
+  closeFloatingVisualizer(): Promise<void>;
 
   onPermissionRequest(cb: (req: PermissionRequest) => void): () => void;
   onTaskStatus(cb: (update: TaskStatusUpdate) => void): () => void;
@@ -84,6 +103,9 @@ export const IPC = {
   resumeTask: 'raphael:resumeTask',
   getActivity: 'raphael:getActivity',
   clearActivity: 'raphael:clearActivity',
+  speak: 'raphael:speak',
+  openFloatingVisualizer: 'raphael:openFloatingVisualizer',
+  closeFloatingVisualizer: 'raphael:closeFloatingVisualizer',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',

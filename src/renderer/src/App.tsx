@@ -1,11 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ActivityEntry, EnvironmentProfile, AiStatus, PermissionRequest, TaskStatusUpdate, PermissionDecision } from '../../shared/ipc';
+import type { RaphaelState } from './visualizer/types';
 import { StatusPill } from './components/StatusPill';
 import { CurrentTaskPanel } from './panels/CurrentTaskPanel';
 import { ActivityPanel } from './panels/ActivityPanel';
 import { PermissionDialog } from './panels/PermissionDialog';
+import { RaphaelVisualizer, VisualizerDebugStats } from './visualizer/RaphaelVisualizer';
+import { DebugPanel } from './visualizer/DebugPanel';
+import { FloatingVisualizer } from './visualizer/FloatingVisualizer';
+import { useAudioReactive } from './visualizer/useAudioReactive';
+import { deriveRaphaelState } from './visualizer/deriveState';
+import { DEFAULT_TUNABLES, QualityTier, VisualizerTunables } from './visualizer/types';
 
 export default function App() {
+  const isFloating = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'floating';
+  if (isFloating) return <FloatingVisualizer />;
+  return <MainApp />;
+}
+
+function MainApp() {
   const [env, setEnv] = useState<EnvironmentProfile | null>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [setupProgress, setSetupProgress] = useState<any>(null);
@@ -19,7 +32,59 @@ export default function App() {
   const [stepInfo, setStepInfo] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [taskError, setTaskError] = useState(false);
   const logEndRef = useRef<HTMLDivElement | null>(null);
+  const summaryRef = useRef<string | null>(null);
+
+  // --- Visualizer wiring -------------------------------------------------
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+  if (!audioElRef.current && typeof window !== 'undefined') audioElRef.current = new Audio();
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [completedAt, setCompletedAt] = useState<number | null>(null);
+  const [aiError, setAiError] = useState(false);
+  const [visualizerMode, setVisualizerMode] = useState<'embedded' | 'large'>('embedded');
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugState, setDebugState] = useState<RaphaelState | null>(null);
+  const [debugStats, setDebugStats] = useState<VisualizerDebugStats | null>(null);
+  const [tunables, setTunables] = useState<VisualizerTunables>(DEFAULT_TUNABLES);
+  const [forceQuality, setForceQuality] = useState<QualityTier | null>(null);
+
+  const audioBands = useAudioReactive(audioElRef.current, tunables.audioSensitivity);
+
+  const raphaelState = useMemo(
+    () =>
+      deriveRaphaelState({
+        aiError,
+        taskError,
+        permissionPending: !!permissionRequest,
+        running,
+        paused,
+        hasSteps: !!stepInfo,
+        isSpeaking,
+        debugOverride: debugState
+      }),
+    [aiError, taskError, permissionRequest, running, paused, stepInfo, isSpeaking, debugState]
+  );
+
+  async function speak(text: string) {
+    if (!text.trim() || !window.raphael?.speak || !audioElRef.current) return;
+    const result = await window.raphael.speak(text);
+    if (!result.ok) return;
+    const audioEl = audioElRef.current;
+    audioEl.src = `data:${result.mime};base64,${result.audioBase64}`;
+    setIsSpeaking(true);
+    audioEl.onended = () => setIsSpeaking(false);
+    audioEl.onerror = () => setIsSpeaking(false);
+    audioEl.play().catch(() => setIsSpeaking(false));
+  }
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'd') setShowDebug((v) => !v);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   useEffect(() => {
     if (!window.raphael) return;
@@ -34,6 +99,7 @@ export default function App() {
     const offActivity = window.raphael.onActivity?.((entry) => setActivity((prev) => [...prev, entry]));
     const offAiSetup = window.raphael.onAiSetupProgress?.((p: any) => {
       setSetupProgress(p);
+      setAiError(p.stage === 'error');
       if (p.stage === 'ready' || p.stage === 'error') {
         window.raphael.getAiStatus().then(setAiStatus).catch(console.error);
       }
@@ -44,6 +110,11 @@ export default function App() {
       if (update.done) {
         setRunning(false);
         setPaused(false);
+        setTaskError(!!update.error);
+        if (!update.error) {
+          setCompletedAt(Date.now());
+          speak(summaryRef.current ?? update.status);
+        }
       }
     });
 
@@ -78,6 +149,7 @@ export default function App() {
     const { taskId: id, plan } = await window.raphael.submitCommand(text);
     setTaskId(id);
     setSummary(plan.summary);
+    summaryRef.current = plan.summary;
     if (plan.steps.length === 0) setRunning(false);
   }
 
@@ -95,6 +167,25 @@ export default function App() {
           <span className="text-xs text-raphael-textMuted">v0.1 · Phase 1 MVP</span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setVisualizerMode((m) => (m === 'embedded' ? 'large' : 'embedded'))}
+            className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
+          >
+            {visualizerMode === 'embedded' ? 'Expand visualizer' : 'Collapse visualizer'}
+          </button>
+          <button
+            onClick={() => window.raphael.openFloatingVisualizer()}
+            className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
+          >
+            Float visualizer
+          </button>
+          <button
+            onClick={() => setShowDebug((v) => !v)}
+            className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
+            title="Ctrl+Shift+D"
+          >
+            Debug
+          </button>
           <StatusPill label="Environment" ok={!!env?.supported} detail={env ? env.os : 'detecting...'} />
           <StatusPill
             label="Ollama"
@@ -153,42 +244,63 @@ export default function App() {
       )}
 
       <main className="flex flex-1 gap-4 overflow-hidden p-4">
-        <div className="flex w-[380px] flex-col gap-4">
-          <CurrentTaskPanel
-            summary={summary}
-            status={status}
-            stepInfo={stepInfo}
-            running={running}
-            paused={paused}
-            onPause={async () => {
-              if (!taskId) return;
-              await window.raphael.pauseTask(taskId);
-              setPaused(true);
-            }}
-            onResume={async () => {
-              if (!taskId) return;
-              await window.raphael.resumeTask(taskId);
-              setPaused(false);
-            }}
-            onStop={async () => {
-              if (!taskId) return;
-              await window.raphael.stopTask(taskId);
-            }}
-          />
-          <div className="flex-1 overflow-hidden">
-            <ActivityPanel entries={activity} onClear={async () => { await window.raphael.clearActivity(); setActivity([]); }} />
+        {visualizerMode === 'embedded' && (
+          <div className="flex w-[380px] flex-col gap-4">
+            <CurrentTaskPanel
+              summary={summary}
+              status={status}
+              stepInfo={stepInfo}
+              running={running}
+              paused={paused}
+              onPause={async () => {
+                if (!taskId) return;
+                await window.raphael.pauseTask(taskId);
+                setPaused(true);
+              }}
+              onResume={async () => {
+                if (!taskId) return;
+                await window.raphael.resumeTask(taskId);
+                setPaused(false);
+              }}
+              onStop={async () => {
+                if (!taskId) return;
+                await window.raphael.stopTask(taskId);
+              }}
+            />
+            <div className="flex-1 overflow-hidden">
+              <ActivityPanel entries={activity} onClear={async () => { await window.raphael.clearActivity(); setActivity([]); }} />
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="flex flex-1 flex-col justify-end gap-3">
-          <div ref={logEndRef} className="flex-1 rounded-lg border border-raphael-border bg-raphael-surface p-4">
-            <p className="text-sm text-raphael-textMuted">
-              Try: <span className="text-raphael-text">"Create a folder called Projects"</span> or{' '}
-              <span className="text-raphael-text">"What's my system?"</span>
-            </p>
-            <p className="mt-2 text-xs text-raphael-textMuted">
-              Only these actions are implemented right now. Everything else will say so instead of pretending to run.
-            </p>
+          <div ref={logEndRef} className="relative flex-1 overflow-hidden rounded-lg border border-raphael-border bg-raphael-surface">
+            <RaphaelVisualizer
+              state={raphaelState}
+              audio={audioBands}
+              tunables={tunables}
+              forceQuality={forceQuality}
+              completedAt={completedAt}
+              onStats={setDebugStats}
+            />
+            {showDebug && (
+              <DebugPanel
+                stats={debugStats}
+                tunables={tunables}
+                onTunablesChange={setTunables}
+                forceQuality={forceQuality}
+                onForceQualityChange={setForceQuality}
+                debugState={debugState}
+                onDebugStateChange={setDebugState}
+                onClose={() => setShowDebug(false)}
+              />
+            )}
+            {visualizerMode === 'embedded' && (
+              <div className="pointer-events-none absolute bottom-3 left-3 right-3 text-center text-xs text-raphael-textMuted/80">
+                Try: <span className="text-raphael-text">"Create a folder called Projects"</span> or{' '}
+                <span className="text-raphael-text">"What's my system?"</span>
+              </div>
+            )}
           </div>
           <form onSubmit={handleSubmit} className="flex gap-2">
             <input
