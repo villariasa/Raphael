@@ -5,6 +5,52 @@ let sharedAudioContext: AudioContext | null = null;
 let sharedAnalyser: AnalyserNode | null = null;
 let currentBufferSource: AudioBufferSourceNode | null = null;
 
+/**
+ * Real playback clock for the subtitle system. `start`/`endsAt` are in the
+ * AudioContext's own time base (seconds) when driven by Web Audio — the
+ * same clock the audio samples play on — so subtitle progress tracks the
+ * actual voice, not a fixed typing speed. `wallStart` is a fallback for the
+ * rare <audio>-element path. `playing` flips false the instant speech ends
+ * or is interrupted, so the subtitle stops at exactly that point.
+ */
+let speechClock: {
+  base: 'ctx' | 'wall';
+  start: number;
+  duration: number;
+  playing: boolean;
+} | null = null;
+
+function nowInBase(base: 'ctx' | 'wall'): number {
+  if (base === 'ctx' && sharedAudioContext) return sharedAudioContext.currentTime;
+  return performance.now() / 1000;
+}
+
+/** Called by the playback paths when real speech audio begins. */
+export function markSpeechStart(durationSec: number, base: 'ctx' | 'wall'): void {
+  speechClock = { base, start: nowInBase(base), duration: durationSec, playing: true };
+}
+
+/** Called the instant speech ends naturally or is interrupted. */
+export function markSpeechEnd(): void {
+  if (speechClock) speechClock.playing = false;
+}
+
+export interface SpeechProgress {
+  /** 0..1 fraction of the current utterance that has played */
+  progress: number;
+  playing: boolean;
+}
+
+/** Read the live playback position. Drives subtitle reveal each frame. */
+export function getSpeechProgress(): SpeechProgress {
+  if (!speechClock) return { progress: 0, playing: false };
+  if (!speechClock.playing) return { progress: 1, playing: false };
+  if (speechClock.duration <= 0) return { progress: 0, playing: true };
+  const elapsed = nowInBase(speechClock.base) - speechClock.start;
+  const progress = Math.min(1, Math.max(0, elapsed / speechClock.duration));
+  return { progress, playing: true };
+}
+
 export function getSharedAudioGraph(): { ctx: AudioContext; analyser: AnalyserNode } | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -72,11 +118,14 @@ export async function playSpeechWav(base64: string, onEnded?: () => void): Promi
     sourceNode.onended = () => {
       if (currentBufferSource === sourceNode) {
         currentBufferSource = null;
+        markSpeechEnd();
       }
       onEnded?.();
     };
 
     sourceNode.start(0);
+    // Drive subtitles off the real decoded duration on the audio clock.
+    markSpeechStart(audioBuffer.duration, 'ctx');
     return true;
   } catch (err) {
     console.warn('[playSpeechWav] Direct Web Audio playback failed:', err);
@@ -85,6 +134,8 @@ export async function playSpeechWav(base64: string, onEnded?: () => void): Promi
 }
 
 export function stopSpeech(): void {
+  // Interruption: stop the subtitle at exactly this point, immediately.
+  markSpeechEnd();
   if (currentBufferSource) {
     try {
       currentBufferSource.stop();

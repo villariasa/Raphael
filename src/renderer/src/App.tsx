@@ -10,7 +10,8 @@ import { VisualizerDebugStats } from './visualizer/RaphaelVisualizer';
 import { RaphaelVisualizerVideo as RaphaelVisualizer } from './visualizer/RaphaelVisualizerVideo';
 import { DebugPanel } from './visualizer/DebugPanel';
 import { FloatingVisualizer } from './visualizer/FloatingVisualizer';
-import { useAudioReactive, playSpeechWav, resumeAudioContext } from './visualizer/useAudioReactive';
+import { useAudioReactive, playSpeechWav, resumeAudioContext, stopSpeech, markSpeechStart, markSpeechEnd } from './visualizer/useAudioReactive';
+import { RaphaelSubtitle } from './visualizer/RaphaelSubtitle';
 import { deriveRaphaelState } from './visualizer/deriveState';
 import { DEFAULT_TUNABLES, QualityTier, VisualizerTunables } from './visualizer/types';
 
@@ -47,6 +48,9 @@ function MainApp() {
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   if (!audioElRef.current && typeof window !== 'undefined') audioElRef.current = new Audio();
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [subtitleText, setSubtitleText] = useState<string | null>(null);
+  const subtitleNonceRef = useRef(0);
+  const [subtitleNonce, setSubtitleNonce] = useState(0);
   const [completedAt, setCompletedAt] = useState<number | null>(null);
   const [aiError, setAiError] = useState(false);
   const [visualizerMode, setVisualizerMode] = useState<'embedded' | 'large'>('embedded');
@@ -73,6 +77,12 @@ function MainApp() {
     [aiError, taskError, permissionRequest, running, paused, stepInfo, isSpeaking, debugState]
   );
 
+  function startSubtitle(text: string) {
+    subtitleNonceRef.current += 1;
+    setSubtitleNonce(subtitleNonceRef.current);
+    setSubtitleText(text);
+  }
+
   async function speak(text: string) {
     if (!text || !text.trim() || !window.raphael?.speak) return;
     try {
@@ -84,6 +94,9 @@ function MainApp() {
       }
 
       setIsSpeaking(true);
+      // Subtitle reveal is driven by the real playback clock set inside
+      // playSpeechWav / the <audio> element — not a fixed typing speed.
+      startSubtitle(text);
       const played = await playSpeechWav(result.audioBase64, () => {
         setIsSpeaking(false);
       });
@@ -93,14 +106,34 @@ function MainApp() {
         audioEl.src = `data:${result.mime};base64,${result.audioBase64}`;
         audioEl.volume = 1.0;
         audioEl.muted = false;
-        audioEl.onended = () => setIsSpeaking(false);
-        audioEl.onerror = () => setIsSpeaking(false);
+        // Fallback <audio> path: feed the subtitle clock from element time.
+        audioEl.onloadedmetadata = () => {
+          if (isFinite(audioEl.duration) && audioEl.duration > 0) {
+            markSpeechStart(audioEl.duration, 'wall');
+          }
+        };
+        audioEl.onended = () => {
+          setIsSpeaking(false);
+          markSpeechEnd();
+        };
+        audioEl.onerror = () => {
+          setIsSpeaking(false);
+          markSpeechEnd();
+        };
         await audioEl.play().catch(() => setIsSpeaking(false));
       }
     } catch (err) {
       console.error('[speak] playback error:', err);
       setIsSpeaking(false);
+      markSpeechEnd();
     }
+  }
+
+  /** Immediately silence Raphael and stop the subtitle at the current point. */
+  function interruptSpeech() {
+    stopSpeech();
+    setIsSpeaking(false);
+    setSubtitleText(null);
   }
 
   useEffect(() => {
@@ -216,11 +249,9 @@ function MainApp() {
           >
             Exit fullscreen
           </button>
-          {status && (
-            <div className="pointer-events-none absolute bottom-3 left-3 right-3 text-center text-sm text-white/85">
-              {status}
-            </div>
-          )}
+          <div className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center px-6">
+            <RaphaelSubtitle text={subtitleText} nonce={subtitleNonce} />
+          </div>
         </div>
         <form onSubmit={handleSubmit} className="mt-4 flex gap-2">
           <input
@@ -445,6 +476,7 @@ function MainApp() {
                 setPaused(false);
               }}
               onStop={async () => {
+                interruptSpeech();
                 if (!taskId) return;
                 await window.raphael.stopTask(taskId);
               }}
@@ -477,7 +509,10 @@ function MainApp() {
                 onClose={() => setShowDebug(false)}
               />
             )}
-            {visualizerMode === 'embedded' && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center px-6">
+              <RaphaelSubtitle text={subtitleText} nonce={subtitleNonce} />
+            </div>
+            {visualizerMode === 'embedded' && !subtitleText && (
               <div className="pointer-events-none absolute bottom-3 left-3 right-3 text-center text-xs text-raphael-textMuted/80">
                 Try: <span className="text-raphael-text">"Create a folder called Projects"</span> or{' '}
                 <span className="text-raphael-text">"What's my system?"</span>
