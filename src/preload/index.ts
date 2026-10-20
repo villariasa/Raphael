@@ -19,10 +19,13 @@ const IPC: typeof IpcType = {
   setAlwaysAllowAll: 'raphael:setAlwaysAllowAll',
   getVoice: 'raphael:getVoice',
   setVoice: 'raphael:setVoice',
+  toggleFullscreen: 'raphael:toggleFullscreen',
+  getStats: 'raphael:getStats',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',
-  aiSetupEvent: 'raphael:aiSetupEvent'
+  aiSetupEvent: 'raphael:aiSetupEvent',
+  fullscreenEvent: 'raphael:fullscreenEvent'
 };
 
 /**
@@ -48,6 +51,8 @@ const api: RaphaelApi = {
   setAlwaysAllowAll: (enabled: boolean) => ipcRenderer.invoke(IPC.setAlwaysAllowAll, enabled),
   getVoice: () => ipcRenderer.invoke(IPC.getVoice),
   setVoice: (voice: VoiceOption) => ipcRenderer.invoke(IPC.setVoice, voice),
+  toggleFullscreen: () => ipcRenderer.invoke(IPC.toggleFullscreen),
+  getStats: () => ipcRenderer.invoke(IPC.getStats),
 
   onPermissionRequest: (cb: (req: PermissionRequest) => void) => {
     const listener = (_: unknown, req: PermissionRequest) => cb(req);
@@ -68,6 +73,11 @@ const api: RaphaelApi = {
     const listener = (_: unknown, progress: any) => cb(progress);
     ipcRenderer.on(IPC.aiSetupEvent, listener);
     return () => ipcRenderer.removeListener(IPC.aiSetupEvent, listener);
+  },
+  onFullscreenChange: (cb: (isFullscreen: boolean) => void) => {
+    const listener = (_: unknown, isFullscreen: boolean) => cb(isFullscreen);
+    ipcRenderer.on(IPC.fullscreenEvent, listener);
+    return () => ipcRenderer.removeListener(IPC.fullscreenEvent, listener);
   }
 };
 

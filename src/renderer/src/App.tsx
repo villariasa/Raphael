@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ActivityEntry, EnvironmentProfile, AiStatus, PermissionRequest, TaskStatusUpdate, PermissionDecision, VoiceOption } from '../../shared/ipc';
+import type { ActivityEntry, EnvironmentProfile, AiStatus, PermissionRequest, TaskStatusUpdate, PermissionDecision, VoiceOption, ConversationStats } from '../../shared/ipc';
 import { VOICE_OPTIONS } from '../../shared/ipc';
 import type { RaphaelState } from './visualizer/types';
 import { StatusPill } from './components/StatusPill';
@@ -37,6 +37,9 @@ function MainApp() {
   const [taskError, setTaskError] = useState(false);
   const [allPermissions, setAllPermissions] = useState(false);
   const [voice, setVoice] = useState<VoiceOption>('en-US-female');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [stats, setStats] = useState<ConversationStats | null>(null);
+  const [showStats, setShowStats] = useState(false);
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const summaryRef = useRef<string | null>(null);
 
@@ -141,12 +144,14 @@ function MainApp() {
         }
       }
     });
+    const offFullscreen = window.raphael.onFullscreenChange?.(setIsFullscreen);
 
     return () => {
       offPermission?.();
       offActivity?.();
       offAiSetup?.();
       offStatus?.();
+      offFullscreen?.();
     };
   }, []);
 
@@ -187,6 +192,53 @@ function MainApp() {
     await window.raphael.respondToPermission(permissionRequest.requestId, decision);
     if (decision === 'always_allow_all') setAllPermissions(true);
     setPermissionRequest(null);
+  }
+
+  // Fullscreen: show ONLY the visualizer card + chatbox (and whatever must
+  // interrupt — permission prompts). Everything chrome-y is hidden.
+  if (isFullscreen) {
+    return (
+      <div className="flex h-screen flex-col bg-[#020305] p-4">
+        <audio ref={audioElRef} className="hidden" preload="auto" />
+        <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-raphael-border">
+          <RaphaelVisualizer
+            state={raphaelState}
+            audio={audioBands}
+            tunables={tunables}
+            forceQuality={forceQuality}
+            completedAt={completedAt}
+            onStats={setDebugStats}
+          />
+          <button
+            onClick={() => window.raphael.toggleFullscreen()}
+            className="absolute right-3 top-3 z-10 rounded-md border border-white/20 bg-black/40 px-2.5 py-1 text-xs text-white/80 hover:bg-black/70 hover:text-white"
+            title="Exit fullscreen (F11)"
+          >
+            Exit fullscreen
+          </button>
+          {status && (
+            <div className="pointer-events-none absolute bottom-3 left-3 right-3 text-center text-sm text-white/85">
+              {status}
+            </div>
+          )}
+        </div>
+        <form onSubmit={handleSubmit} className="mt-4 flex gap-2">
+          <input
+            value={commandText}
+            onChange={(e) => setCommandText(e.target.value)}
+            placeholder="Tell Raphael what you want to do..."
+            className="flex-1 rounded-md border border-raphael-border bg-raphael-surfaceAlt px-4 py-3 text-sm text-raphael-text placeholder:text-raphael-textMuted focus:outline-none focus:ring-1 focus:ring-raphael-accent"
+          />
+          <button
+            type="submit"
+            className="rounded-md bg-raphael-accent px-5 py-3 text-sm font-medium text-white hover:bg-raphael-accent/90"
+          >
+            Send
+          </button>
+        </form>
+        {permissionRequest && <PermissionDialog request={permissionRequest} onDecision={decide} />}
+      </div>
+    );
   }
 
   return (
@@ -232,9 +284,61 @@ function MainApp() {
           <button
             onClick={() => window.raphael.openFloatingVisualizer()}
             className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
+            title="Open a floating, always-on-top Raphael with its own chat"
           >
             Float
           </button>
+          <button
+            onClick={() => window.raphael.toggleFullscreen()}
+            className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
+            title="Fullscreen — visualizer + chat only"
+          >
+            Fullscreen
+          </button>
+          <div className="relative">
+            <button
+              onClick={async () => {
+                if (!showStats) {
+                  const s = await window.raphael.getStats?.();
+                  if (s) setStats(s);
+                }
+                setShowStats((v) => !v);
+              }}
+              className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
+              title="Raphael's memory & statistics"
+            >
+              Stats
+            </button>
+            {showStats && stats && (
+              <div className="absolute right-0 top-full z-30 mt-1 w-64 rounded-lg border border-raphael-border bg-raphael-surface p-3 text-xs text-raphael-text shadow-xl">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="font-semibold tracking-wide">MEMORY & STATS</span>
+                  <button onClick={() => setShowStats(false)} className="text-raphael-textMuted hover:text-raphael-text">✕</button>
+                </div>
+                <div className="grid grid-cols-2 gap-x-2 gap-y-1 font-mono text-[11px] text-raphael-textMuted">
+                  <span>Total commands</span><span className="text-right text-raphael-text">{stats.totalTurns}</span>
+                  <span>Actions planned</span><span className="text-right text-raphael-text">{stats.totalActionsPlanned}</span>
+                  <span>Verified OK</span><span className="text-right text-raphael-ok">{stats.successes}</span>
+                  <span>Failed</span><span className="text-right text-raphael-danger">{stats.failures}</span>
+                  <span>Days active</span><span className="text-right text-raphael-text">{stats.daysActive.length}</span>
+                  <span>First seen</span><span className="text-right text-raphael-text">{stats.firstSeen ? stats.firstSeen.slice(0, 10) : '—'}</span>
+                </div>
+                {Object.keys(stats.actionsByKind).length > 0 && (
+                  <div className="mt-2 border-t border-raphael-border pt-2">
+                    <div className="mb-1 text-[10px] uppercase tracking-wider text-raphael-textMuted">Top actions</div>
+                    {Object.entries(stats.actionsByKind).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => (
+                      <div key={k} className="flex justify-between font-mono text-[11px]">
+                        <span className="text-raphael-textMuted">{k}</span><span className="text-raphael-text">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-2 border-t border-raphael-border pt-2 text-[10px] text-raphael-textMuted">
+                  Stored locally. Daily journal: raphael-data/journal/
+                </p>
+              </div>
+            )}
+          </div>
           <button
             onClick={() => setShowDebug((v) => !v)}
             className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"

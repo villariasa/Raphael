@@ -12,6 +12,7 @@ import { Executor } from './core/executor/executor';
 import { TaskManager } from './core/executor/taskManager';
 import { ActivityStore } from './storage/activityStore';
 import { SettingsStore } from './storage/settingsStore';
+import { ConversationStore } from './storage/conversationStore';
 import { CursorOverlay } from './ui/cursorOverlay';
 import { TtsManager } from './core/tts/ttsManager';
 
@@ -22,6 +23,7 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 const activity = new ActivityStore(DATA_DIR);
 const settingsStore = new SettingsStore(DATA_DIR);
+const conversationStore = new ConversationStore(DATA_DIR);
 const permissionStore = new PermissionStore(DATA_DIR);
 const permissionGate = new PermissionGate(permissionStore);
 const ai = new OllamaProvider();
@@ -77,6 +79,12 @@ function createMainWindow(): void {
     mainWindow?.reload();
   });
 
+  // Let the renderer switch to the minimal (visualizer + chatbox only)
+  // layout when the OS reports real fullscreen — whether triggered by our
+  // button, F11, or the native title-bar control.
+  mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send(IPC.fullscreenEvent, true));
+  mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send(IPC.fullscreenEvent, false));
+
   const devServerUrl = process.env.RAPHAEL_DEV_SERVER_URL;
   if (devServerUrl) {
     mainWindow.loadURL(devServerUrl);
@@ -104,15 +112,19 @@ function createFloatingWindow(): void {
     return;
   }
   floatingWindow = new BrowserWindow({
-    width: 420,
-    height: 420,
-    minWidth: 220,
-    minHeight: 220,
+    width: 380,
+    height: 540,
+    minWidth: 260,
+    minHeight: 340,
     backgroundColor: '#05070a',
-    title: 'Raphael — Visualizer',
+    title: 'Raphael — Floating',
     frame: false,
     resizable: true,
-    alwaysOnTop: false,
+    // Floats above other apps so My Liege can command Raphael while working
+    // elsewhere (§14). Still a normal, closeable window — not a desktop
+    // overlay; closing it releases nothing but itself.
+    alwaysOnTop: true,
+    skipTaskbar: false,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -120,6 +132,8 @@ function createFloatingWindow(): void {
       sandbox: true
     }
   });
+  // Keep it visible even over other apps' fullscreen spaces where the OS allows.
+  floatingWindow.setAlwaysOnTop(true, 'floating');
 
   const devServerUrl = process.env.RAPHAEL_DEV_SERVER_URL;
   const query = '?mode=floating';
@@ -182,9 +196,18 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC.submitCommand, async (_evt, text: string) => {
     activity.append(`User command: "${text}"`, 'info');
-    const plan = await planner.plan(text);
+    // Feed Raphael its own recent memory so My Liege isn't forced to
+    // re-explain context already given (local-first, never transmitted).
+    const history = conversationStore.getHistoryForContext();
+    const plan = await planner.plan(text, history);
+    // Record the turn (user ask + Raphael's reply/plan) to persistent memory
+    // + the daily journal. Outcomes are recorded separately once verified.
+    conversationStore.recordTurn(text, plan.summary, plan.steps.map((s) => s.action));
     const taskId = taskManager.start(plan, (update) => {
       broadcast(IPC.taskStatusEvent, update);
+      if (update.done) {
+        conversationStore.recordOutcome(update.status, !update.error);
+      }
     });
     return { taskId, plan };
   });
@@ -234,6 +257,15 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC.closeFloatingVisualizer, async () => {
     floatingWindow?.close();
   });
+
+  ipcMain.handle(IPC.toggleFullscreen, async () => {
+    if (!mainWindow) return;
+    mainWindow.setFullScreen(!mainWindow.isFullScreen());
+    // The enter/leave-full-screen listeners broadcast the new state back
+    // to the renderer so the minimal layout follows the real OS state.
+  });
+
+  ipcMain.handle(IPC.getStats, async () => conversationStore.getStats());
 
   ipcMain.handle(IPC.getAlwaysAllowAll, async () => {
     return permissionStore.isAlwaysAllowAll();
