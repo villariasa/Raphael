@@ -8,7 +8,7 @@ import { PermissionDialog } from './panels/PermissionDialog';
 import { RaphaelVisualizer, VisualizerDebugStats } from './visualizer/RaphaelVisualizer';
 import { DebugPanel } from './visualizer/DebugPanel';
 import { FloatingVisualizer } from './visualizer/FloatingVisualizer';
-import { useAudioReactive } from './visualizer/useAudioReactive';
+import { useAudioReactive, playSpeechWav, resumeAudioContext } from './visualizer/useAudioReactive';
 import { deriveRaphaelState } from './visualizer/deriveState';
 import { DEFAULT_TUNABLES, QualityTier, VisualizerTunables } from './visualizer/types';
 
@@ -33,6 +33,7 @@ function MainApp() {
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [taskError, setTaskError] = useState(false);
+  const [allPermissions, setAllPermissions] = useState(false);
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const summaryRef = useRef<string | null>(null);
 
@@ -67,15 +68,33 @@ function MainApp() {
   );
 
   async function speak(text: string) {
-    if (!text.trim() || !window.raphael?.speak || !audioElRef.current) return;
-    const result = await window.raphael.speak(text);
-    if (!result.ok) return;
-    const audioEl = audioElRef.current;
-    audioEl.src = `data:${result.mime};base64,${result.audioBase64}`;
-    setIsSpeaking(true);
-    audioEl.onended = () => setIsSpeaking(false);
-    audioEl.onerror = () => setIsSpeaking(false);
-    audioEl.play().catch(() => setIsSpeaking(false));
+    if (!text || !text.trim() || !window.raphael?.speak) return;
+    try {
+      await resumeAudioContext();
+      const result = await window.raphael.speak(text);
+      if (!result.ok) {
+        console.warn('[speak] TTS synthesis error:', result.reason);
+        return;
+      }
+
+      setIsSpeaking(true);
+      const played = await playSpeechWav(result.audioBase64, () => {
+        setIsSpeaking(false);
+      });
+
+      if (!played && audioElRef.current) {
+        const audioEl = audioElRef.current;
+        audioEl.src = `data:${result.mime};base64,${result.audioBase64}`;
+        audioEl.volume = 1.0;
+        audioEl.muted = false;
+        audioEl.onended = () => setIsSpeaking(false);
+        audioEl.onerror = () => setIsSpeaking(false);
+        await audioEl.play().catch(() => setIsSpeaking(false));
+      }
+    } catch (err) {
+      console.error('[speak] playback error:', err);
+      setIsSpeaking(false);
+    }
   }
 
   useEffect(() => {
@@ -94,6 +113,7 @@ function MainApp() {
       if (s?.setupProgress) setSetupProgress(s.setupProgress);
     }).catch(console.error);
     window.raphael.getActivity().then(setActivity).catch(console.error);
+    window.raphael.getAlwaysAllowAll?.().then(setAllPermissions).catch(console.error);
 
     const offPermission = window.raphael.onPermissionRequest?.(setPermissionRequest);
     const offActivity = window.raphael.onActivity?.((entry) => setActivity((prev) => [...prev, entry]));
@@ -112,8 +132,8 @@ function MainApp() {
         setPaused(false);
         setTaskError(!!update.error);
         if (!update.error) {
-          setCompletedAt(Date.now());
-          speak(summaryRef.current ?? update.status);
+          setCompletedAt(performance.now());
+          speak(update.status || summaryRef.current || 'Done.');
         }
       }
     });
@@ -150,17 +170,24 @@ function MainApp() {
     setTaskId(id);
     setSummary(plan.summary);
     summaryRef.current = plan.summary;
-    if (plan.steps.length === 0) setRunning(false);
+    if (plan.steps.length === 0) {
+      setRunning(false);
+      setStatus(plan.summary);
+      setCompletedAt(performance.now());
+      speak(plan.summary);
+    }
   }
 
   async function decide(decision: PermissionDecision) {
     if (!permissionRequest) return;
     await window.raphael.respondToPermission(permissionRequest.requestId, decision);
+    if (decision === 'always_allow_all') setAllPermissions(true);
     setPermissionRequest(null);
   }
 
   return (
     <div className="flex h-screen flex-col">
+      <audio ref={audioElRef} className="hidden" preload="auto" />
       <header className="flex items-center justify-between border-b border-raphael-border px-5 py-3">
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold tracking-wide text-raphael-text">RAPHAEL</span>
@@ -170,6 +197,28 @@ function MainApp() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => speak("Raphael voice synthesis is active and online.")}
+            className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
+            title="Click to test Raphael's voice"
+          >
+            🔊 Test Voice
+          </button>
+          <button
+            onClick={async () => {
+              const next = !allPermissions;
+              await window.raphael.setAlwaysAllowAll?.(next);
+              setAllPermissions(next);
+            }}
+            className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
+              allPermissions
+                ? 'border-raphael-ok/40 bg-raphael-ok/15 text-raphael-ok'
+                : 'border-raphael-border text-raphael-textMuted hover:text-raphael-text'
+            }`}
+            title="Toggle full permission execution without confirmation prompts"
+          >
+            {allPermissions ? 'Permissions: All Allowed ✓' : 'Permissions: Ask'}
+          </button>
           <button
             onClick={() => setVisualizerMode((m) => (m === 'embedded' ? 'large' : 'embedded'))}
             className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
@@ -277,7 +326,7 @@ function MainApp() {
         )}
 
         <div className="flex flex-1 flex-col justify-end gap-3">
-          <div ref={logEndRef} className="relative flex-1 overflow-hidden rounded-lg border border-raphael-border bg-raphael-surface">
+          <div ref={logEndRef} className="relative flex-1 overflow-hidden rounded-lg border border-raphael-border bg-[#020305]">
             <RaphaelVisualizer
               state={raphaelState}
               audio={audioBands}

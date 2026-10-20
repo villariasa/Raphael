@@ -33,6 +33,12 @@ export function PermissionDialog({ request, onDecision }: Props) {
             Always Allow for this action
           </button>
           <button
+            onClick={() => onDecision('always_allow_all')}
+            className="rounded-md border border-raphael-accent/40 bg-raphael-accent/15 px-3 py-2 text-sm font-medium text-raphael-accent hover:bg-raphael-accent/25"
+          >
+            Always Allow ALL Actions (Never ask again)
+          </button>
+          <button
             onClick={() => onDecision('deny')}
             className="rounded-md border border-raphael-border px-3 py-2 text-sm text-raphael-danger hover:bg-raphael-danger/10"
           >

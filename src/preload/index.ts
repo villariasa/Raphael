@@ -15,6 +15,8 @@ const IPC: typeof IpcType = {
   speak: 'raphael:speak',
   openFloatingVisualizer: 'raphael:openFloatingVisualizer',
   closeFloatingVisualizer: 'raphael:closeFloatingVisualizer',
+  getAlwaysAllowAll: 'raphael:getAlwaysAllowAll',
+  setAlwaysAllowAll: 'raphael:setAlwaysAllowAll',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',
@@ -40,6 +42,8 @@ const api: RaphaelApi = {
   speak: (text: string) => ipcRenderer.invoke(IPC.speak, text),
   openFloatingVisualizer: () => ipcRenderer.invoke(IPC.openFloatingVisualizer),
   closeFloatingVisualizer: () => ipcRenderer.invoke(IPC.closeFloatingVisualizer),
+  getAlwaysAllowAll: () => ipcRenderer.invoke(IPC.getAlwaysAllowAll),
+  setAlwaysAllowAll: (enabled: boolean) => ipcRenderer.invoke(IPC.setAlwaysAllowAll, enabled),
 
   onPermissionRequest: (cb: (req: PermissionRequest) => void) => {
     const listener = (_: unknown, req: PermissionRequest) => cb(req);

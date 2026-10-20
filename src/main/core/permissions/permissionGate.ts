@@ -31,6 +31,10 @@ export class PermissionGate {
   }
 
   async authorize(action: SafeAction): Promise<{ approved: boolean; reason: string }> {
+    if (this.store.isAlwaysAllowAll()) {
+      return { approved: true, reason: 'all-permissions grant active — auto-approved' };
+    }
+
     const risk = riskOf(action.action);
 
     if (risk === 'low') {
@@ -59,6 +63,10 @@ export class PermissionGate {
 
     if (decision === 'deny') {
       return { approved: false, reason: 'user denied' };
+    }
+    if (decision === 'always_allow_all') {
+      this.store.setAlwaysAllowAll(true);
+      return { approved: true, reason: 'user granted all permissions' };
     }
     if (decision === 'always_allow') {
       this.store.grantAlways(scopeKey);

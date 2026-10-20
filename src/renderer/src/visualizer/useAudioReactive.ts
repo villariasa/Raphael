@@ -1,49 +1,132 @@
 import { useEffect, useRef, useState } from 'react';
 import { AudioBands, SILENT_AUDIO } from './types';
 
+let sharedAudioContext: AudioContext | null = null;
+let sharedAnalyser: AnalyserNode | null = null;
+let currentBufferSource: AudioBufferSourceNode | null = null;
+
+export function getSharedAudioGraph(): { ctx: AudioContext; analyser: AnalyserNode } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    if (!sharedAudioContext) {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return null;
+      sharedAudioContext = new AudioCtx();
+      sharedAnalyser = sharedAudioContext.createAnalyser();
+      sharedAnalyser.fftSize = 256;
+      sharedAnalyser.smoothingTimeConstant = 0.75;
+      sharedAnalyser.connect(sharedAudioContext.destination);
+    }
+    return { ctx: sharedAudioContext, analyser: sharedAnalyser! };
+  } catch (err) {
+    console.warn('[useAudioReactive] Failed to create shared AudioContext:', err);
+    return null;
+  }
+}
+
+export async function resumeAudioContext(): Promise<void> {
+  const graph = getSharedAudioGraph();
+  if (graph && graph.ctx.state === 'suspended') {
+    try {
+      await graph.ctx.resume();
+    } catch {}
+  }
+}
+
 /**
- * Real audio analysis (§6): wraps a single <audio> element with a Web Audio
- * AnalyserNode and extracts band energies from its actual FFT output on
- * every animation frame. No synthetic/random data — if nothing is playing,
- * every band reports 0.
+ * Play synthesized speech WAV directly through the Web Audio graph.
+ * Ensures the AudioContext is running, connects to the analyser (driving
+ * the visualizer in real time), and outputs crystal-clear sound to the speakers.
+ */
+export async function playSpeechWav(base64: string, onEnded?: () => void): Promise<boolean> {
+  try {
+    const graph = getSharedAudioGraph();
+    if (!graph) return false;
+
+    if (graph.ctx.state === 'suspended') {
+      await graph.ctx.resume();
+    }
+
+    if (currentBufferSource) {
+      try {
+        currentBufferSource.stop();
+        currentBufferSource.disconnect();
+      } catch {}
+      currentBufferSource = null;
+    }
+
+    // Convert base64 to ArrayBuffer
+    const binary = atob(base64);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    const audioBuffer = await graph.ctx.decodeAudioData(bytes.buffer.slice(0));
+    const sourceNode = graph.ctx.createBufferSource();
+    sourceNode.buffer = audioBuffer;
+    sourceNode.connect(graph.analyser);
+    currentBufferSource = sourceNode;
+
+    sourceNode.onended = () => {
+      if (currentBufferSource === sourceNode) {
+        currentBufferSource = null;
+      }
+      onEnded?.();
+    };
+
+    sourceNode.start(0);
+    return true;
+  } catch (err) {
+    console.warn('[playSpeechWav] Direct Web Audio playback failed:', err);
+    return false;
+  }
+}
+
+export function stopSpeech(): void {
+  if (currentBufferSource) {
+    try {
+      currentBufferSource.stop();
+      currentBufferSource.disconnect();
+    } catch {}
+    currentBufferSource = null;
+  }
+}
+
+const audioGraphCache = new WeakMap<HTMLAudioElement, { source: MediaElementAudioSourceNode }>();
+
+/**
+ * Real-time audio analysis extracting frequency band energies from the Web Audio AnalyserNode.
  */
 export function useAudioReactive(audioEl: HTMLAudioElement | null, sensitivity: number): AudioBands {
   const [bands, setBands] = useState<AudioBands>(SILENT_AUDIO);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const rafRef = useRef<number | null>(null);
   const sensitivityRef = useRef(sensitivity);
   sensitivityRef.current = sensitivity;
 
   useEffect(() => {
-    if (!audioEl) return;
+    const graph = getSharedAudioGraph();
+    if (!graph) return;
 
-    let ctx: AudioContext | null = null;
-    let source: MediaElementAudioSourceNode | null = null;
-    let cancelled = false;
-
-    try {
-      ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      source = ctx.createMediaElementSource(audioEl);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.75;
-      source.connect(analyser);
-      analyser.connect(ctx.destination);
-      analyserRef.current = analyser;
-      dataRef.current = new Uint8Array(analyser.frequencyBinCount);
-    } catch {
-      // Element already has a source node attached elsewhere, or Web Audio
-      // is unavailable. Bands stay silent rather than faking motion.
-      return;
+    // Also connect the HTML audio element if provided
+    if (audioEl && !audioGraphCache.has(audioEl)) {
+      try {
+        const source = graph.ctx.createMediaElementSource(audioEl);
+        source.connect(graph.analyser);
+        audioGraphCache.set(audioEl, { source });
+      } catch {
+        // Element already connected or unavailable
+      }
     }
+
+    let cancelled = false;
+    const data = new Uint8Array(graph.analyser.frequencyBinCount);
 
     const tick = () => {
       if (cancelled) return;
-      const analyser = analyserRef.current;
-      const data = dataRef.current;
-      if (analyser && data) {
-        analyser.getByteFrequencyData(data);
+      if (graph.analyser) {
+        graph.analyser.getByteFrequencyData(data);
         const sens = sensitivityRef.current;
         const band = (fromFrac: number, toFrac: number) => {
           const from = Math.floor(data.length * fromFrac);
@@ -64,15 +147,12 @@ export function useAudioReactive(audioEl: HTMLAudioElement | null, sensitivity: 
       }
       rafRef.current = requestAnimationFrame(tick);
     };
+
     rafRef.current = requestAnimationFrame(tick);
 
     return () => {
       cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      analyserRef.current?.disconnect();
-      source?.disconnect();
-      ctx?.close().catch(() => {});
-      analyserRef.current = null;
       setBands(SILENT_AUDIO);
     };
   }, [audioEl]);

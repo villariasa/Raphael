@@ -4,6 +4,9 @@ import { PermissionGate } from '../permissions/permissionGate';
 import { ActivityStore } from '../../storage/activityStore';
 import { detectEnvironment } from '../environment/detector';
 import { createFolder, verifyFolderExists } from '../../automation/filesystem/createFolder';
+import { createFile, verifyFileExists } from '../../automation/filesystem/createFile';
+import { openApplication } from '../../automation/apps/openApp';
+import { executeCommand } from '../../automation/shell/executeCommand';
 
 export class TaskAborted extends Error {
   constructor() {
@@ -108,6 +111,44 @@ export class Executor {
             : `Folder created and verified: ${result.targetPath}`,
           'success'
         );
+        return;
+      }
+      case 'open_application': {
+        const appName = String(step.params.app ?? step.params.name ?? step.params.application ?? '').trim();
+        const targetPath = step.params.path ? String(step.params.path).trim() : undefined;
+        progress(`Opening application "${appName}"...`);
+        const res = await openApplication(appName, targetPath);
+        this.activity.append(res.detail, 'success');
+        return;
+      }
+      case 'execute_command': {
+        const command = String(step.params.command ?? '').trim();
+        const cwd = step.params.cwd ? String(step.params.cwd).trim() : undefined;
+        progress(`Executing command: ${command}`);
+        const res = await executeCommand(command, cwd);
+        if (res.exitCode !== 0) {
+          const errDetail = res.stderr || `Command exited with code ${res.exitCode}`;
+          this.activity.append(`Command error: ${errDetail}`, 'warn');
+        }
+        if (res.stdout) {
+          this.activity.append(`Output: ${res.stdout.slice(0, 300)}`, 'info');
+        }
+        this.activity.append(`Executed: ${command}`, 'success');
+        return;
+      }
+      case 'create_file': {
+        const name = String(step.params.name ?? step.params.path ?? '').trim();
+        const content = String(step.params.content ?? '');
+        progress(`Creating file "${name}"...`);
+        const result = createFile(name, content);
+        progress('Verifying file was created...');
+        const verified = verifyFileExists(result.targetPath);
+        if (!verified) {
+          const msg = `Verification failed: ${result.targetPath} does not exist after creation.`;
+          this.activity.append(msg, 'error');
+          throw new Error(msg);
+        }
+        this.activity.append(`File created: ${result.targetPath}`, 'success');
         return;
       }
       default:
