@@ -37,11 +37,20 @@ export interface TaskStatusUpdate {
   error?: string;
 }
 
+export interface AiSetupProgress {
+  stage: 'idle' | 'starting' | 'installing_ollama' | 'downloading_model' | 'ready' | 'error';
+  message: string;
+  percent?: number;
+  model?: string;
+  error?: string;
+}
+
 export interface AiStatus {
   provider: 'ollama';
   reachable: boolean;
   baseUrl: string;
   models: string[];
+  setupProgress?: AiSetupProgress;
   error?: string;
 }
 
@@ -49,6 +58,7 @@ export interface AiStatus {
 export interface RaphaelApi {
   getEnvironmentProfile(): Promise<EnvironmentProfile>;
   getAiStatus(): Promise<AiStatus>;
+  triggerAiSetup(): Promise<void>;
   submitCommand(text: string): Promise<{ taskId: string; plan: Plan }>;
   respondToPermission(requestId: string, decision: PermissionDecision): Promise<void>;
   stopTask(taskId: string): Promise<void>;
@@ -60,11 +70,13 @@ export interface RaphaelApi {
   onPermissionRequest(cb: (req: PermissionRequest) => void): () => void;
   onTaskStatus(cb: (update: TaskStatusUpdate) => void): () => void;
   onActivity(cb: (entry: ActivityEntry) => void): () => void;
+  onAiSetupProgress(cb: (progress: AiSetupProgress) => void): () => void;
 }
 
 export const IPC = {
   getEnvironmentProfile: 'raphael:getEnvironmentProfile',
   getAiStatus: 'raphael:getAiStatus',
+  triggerAiSetup: 'raphael:triggerAiSetup',
   submitCommand: 'raphael:submitCommand',
   respondToPermission: 'raphael:respondToPermission',
   stopTask: 'raphael:stopTask',
@@ -74,5 +86,6 @@ export const IPC = {
   clearActivity: 'raphael:clearActivity',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
-  activityEvent: 'raphael:activityEvent'
+  activityEvent: 'raphael:activityEvent',
+  aiSetupEvent: 'raphael:aiSetupEvent'
 } as const;

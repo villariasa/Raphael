@@ -4,6 +4,7 @@ import { IPC } from '../shared/ipc';
 import type { PermissionDecision } from '../shared/ipc';
 import { detectEnvironment } from './core/environment/detector';
 import { OllamaProvider } from './core/ai/ollama';
+import { OllamaManager } from './core/ai/ollamaManager';
 import { Planner } from './core/planner/planner';
 import { PermissionStore } from './core/permissions/permissionStore';
 import { PermissionGate } from './core/permissions/permissionGate';
@@ -13,12 +14,13 @@ import { ActivityStore } from './storage/activityStore';
 import { CursorOverlay } from './ui/cursorOverlay';
 
 const DATA_DIR = path.join(app.getPath('userData'), 'raphael-data');
-const OLLAMA_MODEL = process.env.RAPHAEL_MODEL ?? 'llama3.1';
+const OLLAMA_MODEL = process.env.RAPHAEL_MODEL ?? 'llama3.2';
 
 const activity = new ActivityStore(DATA_DIR);
 const permissionStore = new PermissionStore(DATA_DIR);
 const permissionGate = new PermissionGate(permissionStore);
 const ai = new OllamaProvider();
+const ollamaManager = new OllamaManager(ai, OLLAMA_MODEL);
 const planner = new Planner(ai, OLLAMA_MODEL);
 const executor = new Executor(permissionGate, activity);
 const taskManager = new TaskManager(executor, activity);
@@ -40,6 +42,16 @@ function createMainWindow(): void {
       nodeIntegration: false,
       sandbox: true
     }
+  });
+
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    console.log(`[Renderer Console ${level}] ${message} (${sourceId}:${line})`);
+  });
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    console.error(`[Preload Error] ${preloadPath}:`, error);
+  });
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[Load Error] ${errorCode}: ${errorDescription} (${validatedURL})`);
   });
 
   const devServerUrl = process.env.RAPHAEL_DEV_SERVER_URL;
@@ -65,6 +77,20 @@ app.whenReady().then(() => {
   createMainWindow();
   activity.append('Raphael started.', 'info');
 
+  ollamaManager.onProgress((progress) => {
+    mainWindow?.webContents.send(IPC.aiSetupEvent, progress);
+    if (progress.stage === 'ready') {
+      activity.append(`AI runtime ready: ${progress.model}`, 'success');
+    } else if (progress.stage === 'error') {
+      activity.append(`AI runtime notice: ${progress.message}`, 'warn');
+    }
+  });
+
+  // Automatically ensure Ollama is running and target model is ready
+  ollamaManager.setup().catch((err) => {
+    activity.append(`Ollama setup background notice: ${err.message}`, 'warn');
+  });
+
   ipcMain.handle(IPC.getEnvironmentProfile, async () => {
     const profile = await detectEnvironment();
     return profile;
@@ -78,8 +104,15 @@ app.whenReady().then(() => {
       reachable,
       baseUrl: ai.getBaseUrl(),
       models,
+      setupProgress: ollamaManager.getProgress(),
       error: reachable ? undefined : 'Ollama is not reachable at the configured address.'
     };
+  });
+
+  ipcMain.handle(IPC.triggerAiSetup, async () => {
+    ollamaManager.setup().catch((err) => {
+      activity.append(`Manual AI setup error: ${err.message}`, 'error');
+    });
   });
 
   ipcMain.handle(IPC.submitCommand, async (_evt, text: string) => {

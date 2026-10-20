@@ -1,6 +1,22 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC } from '../shared/ipc';
-import type { RaphaelApi, PermissionRequest, TaskStatusUpdate, ActivityEntry, PermissionDecision } from '../shared/ipc';
+import type { RaphaelApi, PermissionRequest, TaskStatusUpdate, ActivityEntry, PermissionDecision, IPC as IpcType } from '../shared/ipc';
+
+const IPC: typeof IpcType = {
+  getEnvironmentProfile: 'raphael:getEnvironmentProfile',
+  getAiStatus: 'raphael:getAiStatus',
+  submitCommand: 'raphael:submitCommand',
+  respondToPermission: 'raphael:respondToPermission',
+  stopTask: 'raphael:stopTask',
+  pauseTask: 'raphael:pauseTask',
+  resumeTask: 'raphael:resumeTask',
+  getActivity: 'raphael:getActivity',
+  clearActivity: 'raphael:clearActivity',
+  triggerAiSetup: 'raphael:triggerAiSetup',
+  permissionRequestEvent: 'raphael:permissionRequestEvent',
+  taskStatusEvent: 'raphael:taskStatusEvent',
+  activityEvent: 'raphael:activityEvent',
+  aiSetupEvent: 'raphael:aiSetupEvent'
+};
 
 /**
  * The entire renderer↔main surface. Deliberately narrow: no raw ipcRenderer,
@@ -17,6 +33,7 @@ const api: RaphaelApi = {
   resumeTask: (taskId: string) => ipcRenderer.invoke(IPC.resumeTask, taskId),
   getActivity: () => ipcRenderer.invoke(IPC.getActivity),
   clearActivity: () => ipcRenderer.invoke(IPC.clearActivity),
+  triggerAiSetup: () => ipcRenderer.invoke(IPC.triggerAiSetup),
 
   onPermissionRequest: (cb: (req: PermissionRequest) => void) => {
     const listener = (_: unknown, req: PermissionRequest) => cb(req);
@@ -32,6 +49,11 @@ const api: RaphaelApi = {
     const listener = (_: unknown, entry: ActivityEntry) => cb(entry);
     ipcRenderer.on(IPC.activityEvent, listener);
     return () => ipcRenderer.removeListener(IPC.activityEvent, listener);
+  },
+  onAiSetupProgress: (cb: (progress: any) => void) => {
+    const listener = (_: unknown, progress: any) => cb(progress);
+    ipcRenderer.on(IPC.aiSetupEvent, listener);
+    return () => ipcRenderer.removeListener(IPC.aiSetupEvent, listener);
   }
 };
 
