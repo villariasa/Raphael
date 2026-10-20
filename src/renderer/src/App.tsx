@@ -37,7 +37,6 @@ function MainApp() {
   const [taskError, setTaskError] = useState(false);
   const [allPermissions, setAllPermissions] = useState(false);
   const [voice, setVoice] = useState<VoiceOption>('en-US-female');
-  const [isJaVoiceInstalled, setIsJaVoiceInstalled] = useState<boolean>(true);
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const summaryRef = useRef<string | null>(null);
 
@@ -119,7 +118,6 @@ function MainApp() {
     window.raphael.getActivity().then(setActivity).catch(console.error);
     window.raphael.getAlwaysAllowAll?.().then(setAllPermissions).catch(console.error);
     window.raphael.getVoice?.().then(setVoice).catch(console.error);
-    window.raphael.isVoiceInstalled?.('ja-JP-female').then(setIsJaVoiceInstalled).catch(console.error);
 
     const offPermission = window.raphael.onPermissionRequest?.(setPermissionRequest);
     const offActivity = window.raphael.onActivity?.((entry) => setActivity((prev) => [...prev, entry]));
@@ -204,17 +202,7 @@ function MainApp() {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              if (voice === 'ja-JP-female' && !isJaVoiceInstalled) {
-                window.raphael.openVoiceSettings?.();
-                return;
-              }
-              speak(
-                voice === 'ja-JP-female'
-                  ? 'こんにちは！ラファエルの日本語音声テストです。'
-                  : 'Raphael voice synthesis is active and online.'
-              );
-            }}
+            onClick={() => speak("Raphael voice synthesis is active and online.")}
             className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
             title="Click to test Raphael's voice"
           >
@@ -254,37 +242,22 @@ function MainApp() {
           >
             Debug
           </button>
-          <div className="flex items-center gap-1.5">
-            <select
-              value={voice}
-              onChange={async (e) => {
-                const next = e.target.value as VoiceOption;
-                setVoice(next);
-                await window.raphael.setVoice?.(next);
-                if (next === 'ja-JP-female') {
-                  const installed = await window.raphael.isVoiceInstalled?.('ja-JP-female');
-                  setIsJaVoiceInstalled(!!installed);
-                }
-              }}
-              className="rounded-md border border-raphael-border bg-raphael-surface px-2 py-1 text-xs text-raphael-textMuted hover:text-raphael-text focus:outline-none"
-              title="Raphael's speaking voice"
-            >
-              {VOICE_OPTIONS.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
-            {voice === 'ja-JP-female' && !isJaVoiceInstalled && (
-              <button
-                onClick={() => window.raphael.openVoiceSettings?.()}
-                className="rounded-md border border-raphael-warn/40 bg-raphael-warn/15 px-2 py-1 text-xs font-medium text-raphael-warn hover:bg-raphael-warn/25"
-                title="Japanese voice (Microsoft Haruka) is not installed on this PC. Click to open Windows Speech Settings to add it."
-              >
-                ⚠️ Add Voice in Windows
-              </button>
-            )}
-          </div>
+          <select
+            value={voice}
+            onChange={async (e) => {
+              const next = e.target.value as VoiceOption;
+              setVoice(next);
+              await window.raphael.setVoice?.(next);
+            }}
+            className="rounded-md border border-raphael-border bg-raphael-surface px-2 py-1 text-xs text-raphael-textMuted hover:text-raphael-text focus:outline-none"
+            title="Raphael's speaking voice"
+          >
+            {VOICE_OPTIONS.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+              </option>
+            ))}
+          </select>
           <StatusPill label="Environment" ok={!!env?.supported} detail={env ? env.os : 'detecting...'} />
           <StatusPill
             label="Ollama"

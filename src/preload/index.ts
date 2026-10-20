@@ -19,8 +19,6 @@ const IPC: typeof IpcType = {
   setAlwaysAllowAll: 'raphael:setAlwaysAllowAll',
   getVoice: 'raphael:getVoice',
   setVoice: 'raphael:setVoice',
-  isVoiceInstalled: 'raphael:isVoiceInstalled',
-  openVoiceSettings: 'raphael:openVoiceSettings',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',
@@ -50,8 +48,6 @@ const api: RaphaelApi = {
   setAlwaysAllowAll: (enabled: boolean) => ipcRenderer.invoke(IPC.setAlwaysAllowAll, enabled),
   getVoice: () => ipcRenderer.invoke(IPC.getVoice),
   setVoice: (voice: VoiceOption) => ipcRenderer.invoke(IPC.setVoice, voice),
-  isVoiceInstalled: (voice: VoiceOption) => ipcRenderer.invoke(IPC.isVoiceInstalled, voice),
-  openVoiceSettings: () => ipcRenderer.invoke(IPC.openVoiceSettings),
 
   onPermissionRequest: (cb: (req: PermissionRequest) => void) => {
     const listener = (_: unknown, req: PermissionRequest) => cb(req);
