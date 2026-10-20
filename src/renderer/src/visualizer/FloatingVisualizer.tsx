@@ -25,7 +25,7 @@ export function FloatingVisualizer() {
       setTaskStatus(update);
       if (update.done) {
         setRunning(false);
-        if (!update.error) setCompletedAt(Date.now());
+        if (!update.error) setCompletedAt(performance.now());
       } else {
         setRunning(true);
       }

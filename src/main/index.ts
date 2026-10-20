@@ -17,12 +17,14 @@ import { TtsManager } from './core/tts/ttsManager';
 const DATA_DIR = path.join(app.getPath('userData'), 'raphael-data');
 const OLLAMA_MODEL = process.env.RAPHAEL_MODEL ?? 'llama3.2';
 
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 const activity = new ActivityStore(DATA_DIR);
 const permissionStore = new PermissionStore(DATA_DIR);
 const permissionGate = new PermissionGate(permissionStore);
 const ai = new OllamaProvider();
 const ollamaManager = new OllamaManager(ai, OLLAMA_MODEL);
-const planner = new Planner(ai, OLLAMA_MODEL);
+const planner = new Planner(ai, OLLAMA_MODEL, permissionStore);
 const executor = new Executor(permissionGate, activity);
 const taskManager = new TaskManager(executor, activity);
 const cursorOverlay = new CursorOverlay();
@@ -222,6 +224,20 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC.closeFloatingVisualizer, async () => {
     floatingWindow?.close();
+  });
+
+  ipcMain.handle(IPC.getAlwaysAllowAll, async () => {
+    return permissionStore.isAlwaysAllowAll();
+  });
+
+  ipcMain.handle(IPC.setAlwaysAllowAll, async (_evt, enabled: boolean) => {
+    permissionStore.setAlwaysAllowAll(enabled);
+    activity.append(
+      enabled
+        ? 'All permissions auto-approved (full access enabled).'
+        : 'Permission prompts re-enabled.',
+      'info'
+    );
   });
 
   app.on('activate', () => {

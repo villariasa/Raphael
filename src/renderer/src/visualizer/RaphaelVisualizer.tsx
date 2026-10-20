@@ -120,12 +120,16 @@ export function RaphaelVisualizer({
         }
       }
 
-      const completedAgeMs = completedAtRef.current ? now - completedAtRef.current : null;
-      const completionPulseAge = completedAgeMs !== null && completedAgeMs < 1200 ? completedAgeMs / 1000 : null;
+      let completedAgeMs: number | null = null;
+      if (completedAtRef.current !== null && completedAtRef.current !== undefined) {
+        const refVal = completedAtRef.current;
+        const diff = refVal > 1_000_000_000_000 ? Date.now() - refVal : now - refVal;
+        if (diff >= 0 && diff < 1500) {
+          completedAgeMs = diff;
+        }
+      }
+      const completionPulseAge = completedAgeMs !== null ? completedAgeMs / 1000 : null;
 
-      // A single bad frame (e.g. a transient NaN from layout mid-resize)
-      // must not kill the loop and leave the canvas permanently blank —
-      // skip the frame and keep going.
       try {
         drawFrame({
           ctx,
@@ -140,7 +144,12 @@ export function RaphaelVisualizer({
           completionPulseAge
         });
       } catch (err) {
-        console.error('[RaphaelVisualizer] frame draw failed, skipping frame', err);
+        console.error('[RaphaelVisualizer] frame draw failed, resetting canvas state', err);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1.0;
+        ctx.fillStyle = '#020305';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
       onStats?.({

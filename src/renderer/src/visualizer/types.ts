@@ -49,16 +49,14 @@ export const DEFAULT_TUNABLES: VisualizerTunables = {
 /** Single prominent glyph ring (reference: raphael.png) — one readable
  * word/phrase per angular slot, not a dense repeating strip. */
 export const GLYPH_RING_WORDS = [
-  'RAPHAEL',
-  'VOICE PROCESSING',
-  'COMPUTER CONTROL',
-  'EXECUTION ENGINE',
-  'USER AUTHORIZATION',
+  'GLISSE CORP',
   'SYSTEM ACTIVE',
-  'LOCAL AI',
-  'TASK PROCESSING',
-  'SYSTEM ONLINE',
-  'LOCAL INTELLIGENCE'
+  'RAPHAEL CORE',
+  'VOICE RUNTIME',
+  'LOCAL AI PROTOCOL',
+  'COMPUTER CONTROL',
+  'NEURAL ENGINE',
+  'EXECUTION READY'
 ];
 
 /** Vertical edge "code column" text (reference: raphael.png left/right strips). */

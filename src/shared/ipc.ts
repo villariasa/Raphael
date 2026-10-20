@@ -26,7 +26,7 @@ export interface PermissionRequest {
   explanation: string;
 }
 
-export type PermissionDecision = 'allow_once' | 'always_allow' | 'deny';
+export type PermissionDecision = 'allow_once' | 'always_allow' | 'always_allow_all' | 'deny';
 
 export interface TaskStatusUpdate {
   taskId: string;
@@ -85,6 +85,8 @@ export interface RaphaelApi {
   speak(text: string): Promise<SpeakResult>;
   openFloatingVisualizer(): Promise<void>;
   closeFloatingVisualizer(): Promise<void>;
+  getAlwaysAllowAll(): Promise<boolean>;
+  setAlwaysAllowAll(enabled: boolean): Promise<void>;
 
   onPermissionRequest(cb: (req: PermissionRequest) => void): () => void;
   onTaskStatus(cb: (update: TaskStatusUpdate) => void): () => void;
@@ -106,6 +108,8 @@ export const IPC = {
   speak: 'raphael:speak',
   openFloatingVisualizer: 'raphael:openFloatingVisualizer',
   closeFloatingVisualizer: 'raphael:closeFloatingVisualizer',
+  getAlwaysAllowAll: 'raphael:getAlwaysAllowAll',
+  setAlwaysAllowAll: 'raphael:setAlwaysAllowAll',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',

@@ -51,7 +51,10 @@ export const ACTION_RISK: Record<ActionKind, RiskLevel> = {
 /** Action kinds the executor actually implements in this phase of development. */
 export const IMPLEMENTED_ACTION_KINDS: ActionKind[] = [
   'read_system_info',
-  'create_folder'
+  'create_folder',
+  'open_application',
+  'execute_command',
+  'create_file'
 ];
 
 export const SafeAction = z.object({

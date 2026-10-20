@@ -1,49 +1,78 @@
-import { AudioBands, QualityTier, RaphaelState, VisualizerTunables, GLYPH_RING_WORDS, EDGE_CODE_CHARS } from './types';
+import { AudioBands, QualityTier, RaphaelState, VisualizerTunables, GLYPH_RING_WORDS } from './types';
 
 interface StateMotion {
-  /** 0..1 how "awake"/bright the whole piece is */
   energy: number;
-  /** radians/sec base rotation for mid rings */
   ringSpeed: number;
-  /** radians/sec for outer rings */
   outerSpeed: number;
-  /** multiplier on ray count/length */
   rayBoost: number;
-  /** multiplier on particle speed */
   particleSpeed: number;
-  /** breathing pulse amplitude (fraction of core radius) */
   pulseAmplitude: number;
-  /** breathing pulse speed, Hz-ish */
   pulseSpeed: number;
-  /** tint applied to the core/glow (hue shift feel) */
   tint: 'gold' | 'amber' | 'red';
-  /** scanning sweep arc visible (THINKING) */
   scanning: boolean;
-  /** glyph text flicker (RESEARCHING) */
   flicker: boolean;
 }
 
 const STATE_MOTION: Record<RaphaelState, StateMotion> = {
-  idle: { energy: 0.45, ringSpeed: 0.03, outerSpeed: 0.015, rayBoost: 0.5, particleSpeed: 0.3, pulseAmplitude: 0.02, pulseSpeed: 0.15, tint: 'gold', scanning: false, flicker: false },
-  listening: { energy: 0.6, ringSpeed: 0.045, outerSpeed: 0.02, rayBoost: 0.7, particleSpeed: 0.4, pulseAmplitude: 0.05, pulseSpeed: 0.35, tint: 'gold', scanning: false, flicker: false },
-  thinking: { energy: 0.55, ringSpeed: 0.02, outerSpeed: 0.01, rayBoost: 0.6, particleSpeed: 0.35, pulseAmplitude: 0.025, pulseSpeed: 0.2, tint: 'amber', scanning: true, flicker: false },
-  researching: { energy: 0.7, ringSpeed: 0.09, outerSpeed: 0.05, rayBoost: 0.8, particleSpeed: 0.7, pulseAmplitude: 0.03, pulseSpeed: 0.3, tint: 'amber', scanning: false, flicker: true },
-  waiting_for_permission: { energy: 0.4, ringSpeed: 0.015, outerSpeed: 0.008, rayBoost: 0.35, particleSpeed: 0.2, pulseAmplitude: 0.06, pulseSpeed: 0.12, tint: 'amber', scanning: false, flicker: false },
-  executing: { energy: 0.9, ringSpeed: 0.12, outerSpeed: 0.07, rayBoost: 1.3, particleSpeed: 1.1, pulseAmplitude: 0.035, pulseSpeed: 0.5, tint: 'gold', scanning: false, flicker: false },
-  speaking: { energy: 0.85, ringSpeed: 0.06, outerSpeed: 0.03, rayBoost: 1.0, particleSpeed: 0.8, pulseAmplitude: 0.03, pulseSpeed: 0.4, tint: 'gold', scanning: false, flicker: false },
-  completed: { energy: 1.0, ringSpeed: 0.08, outerSpeed: 0.04, rayBoost: 1.2, particleSpeed: 0.9, pulseAmplitude: 0.04, pulseSpeed: 0.6, tint: 'gold', scanning: false, flicker: false },
-  error: { energy: 0.5, ringSpeed: 0.012, outerSpeed: 0.006, rayBoost: 0.4, particleSpeed: 0.25, pulseAmplitude: 0.05, pulseSpeed: 0.25, tint: 'red', scanning: false, flicker: false }
+  idle: { energy: 0.5, ringSpeed: 0.02, outerSpeed: 0.01, rayBoost: 0.6, particleSpeed: 0.25, pulseAmplitude: 0.025, pulseSpeed: 0.18, tint: 'gold', scanning: false, flicker: false },
+  listening: { energy: 0.65, ringSpeed: 0.035, outerSpeed: 0.018, rayBoost: 0.8, particleSpeed: 0.35, pulseAmplitude: 0.04, pulseSpeed: 0.3, tint: 'gold', scanning: false, flicker: false },
+  thinking: { energy: 0.6, ringSpeed: 0.025, outerSpeed: 0.012, rayBoost: 0.7, particleSpeed: 0.3, pulseAmplitude: 0.03, pulseSpeed: 0.22, tint: 'amber', scanning: true, flicker: false },
+  researching: { energy: 0.75, ringSpeed: 0.06, outerSpeed: 0.03, rayBoost: 0.85, particleSpeed: 0.5, pulseAmplitude: 0.035, pulseSpeed: 0.35, tint: 'amber', scanning: false, flicker: true },
+  waiting_for_permission: { energy: 0.45, ringSpeed: 0.015, outerSpeed: 0.008, rayBoost: 0.4, particleSpeed: 0.2, pulseAmplitude: 0.05, pulseSpeed: 0.15, tint: 'amber', scanning: false, flicker: false },
+  executing: { energy: 0.85, ringSpeed: 0.07, outerSpeed: 0.035, rayBoost: 1.0, particleSpeed: 0.7, pulseAmplitude: 0.04, pulseSpeed: 0.45, tint: 'gold', scanning: false, flicker: false },
+  speaking: { energy: 0.8, ringSpeed: 0.04, outerSpeed: 0.02, rayBoost: 0.9, particleSpeed: 0.5, pulseAmplitude: 0.04, pulseSpeed: 0.35, tint: 'gold', scanning: false, flicker: false },
+  completed: { energy: 0.75, ringSpeed: 0.03, outerSpeed: 0.015, rayBoost: 0.75, particleSpeed: 0.4, pulseAmplitude: 0.03, pulseSpeed: 0.25, tint: 'gold', scanning: false, flicker: false },
+  error: { energy: 0.5, ringSpeed: 0.01, outerSpeed: 0.005, rayBoost: 0.4, particleSpeed: 0.2, pulseAmplitude: 0.04, pulseSpeed: 0.2, tint: 'red', scanning: false, flicker: false }
 };
 
 const TINTS = {
-  gold: { core: '#fff6df', mid: '#ffcf6b', outer: '#ffa94a', ring: '#e0b667', particle: '#ffdca3', teal: '#2fb6a8' },
-  amber: { core: '#fff2e0', mid: '#ffb15c', outer: '#ff8a3d', ring: '#d99a52', particle: '#ffc98a', teal: '#2a9db3' },
-  red: { core: '#ffe9e0', mid: '#ff8f6b', outer: '#e5484d', ring: '#c75c56', particle: '#ff9b8a', teal: '#2a6b8f' }
+  gold: {
+    coreHot: '#ffffff',
+    coreHalo: '#ffdc8a',
+    coronaInner: 'rgba(255, 196, 77, 0.85)',
+    coronaMid: 'rgba(255, 154, 34, 0.45)',
+    coronaOuter: 'rgba(255, 130, 20, 0)',
+    polyStroke: '#ffffff',
+    polyGlow: 'rgba(255, 255, 255, 0.9)',
+    glyphText: '#ffa83b',
+    glyphGlow: '#f59e0b',
+    ringLine: 'rgba(235, 165, 60, 0.28)',
+    spokeLine: 'rgba(235, 165, 60, 0.14)',
+    starParticle: '#ffdca3'
+  },
+  amber: {
+    coreHot: '#ffffff',
+    coreHalo: '#ffcf7a',
+    coronaInner: 'rgba(255, 175, 55, 0.85)',
+    coronaMid: 'rgba(240, 130, 30, 0.45)',
+    coronaOuter: 'rgba(240, 100, 15, 0)',
+    polyStroke: '#ffffff',
+    polyGlow: 'rgba(255, 255, 255, 0.9)',
+    glyphText: '#ff982b',
+    glyphGlow: '#e67e17',
+    ringLine: 'rgba(225, 145, 45, 0.28)',
+    spokeLine: 'rgba(225, 145, 45, 0.14)',
+    starParticle: '#ffc98a'
+  },
+  red: {
+    coreHot: '#ffffff',
+    coreHalo: '#ff9e8a',
+    coronaInner: 'rgba(245, 90, 70, 0.85)',
+    coronaMid: 'rgba(215, 45, 50, 0.45)',
+    coronaOuter: 'rgba(180, 25, 30, 0)',
+    polyStroke: '#ffdede',
+    polyGlow: 'rgba(255, 120, 120, 0.9)',
+    glyphText: '#ff6b5e',
+    glyphGlow: '#e5484d',
+    ringLine: 'rgba(215, 75, 75, 0.28)',
+    spokeLine: 'rgba(215, 75, 75, 0.14)',
+    starParticle: '#ff9b8a'
+  }
 };
 
 export interface FrameParticle {
   angle: number;
-  radiusFrac: number; // 0..1 of max radius
+  radiusFrac: number;
   speed: number;
   size: number;
   twinkle: number;
@@ -52,68 +81,36 @@ export interface FrameParticle {
 export function makeParticles(count: number): FrameParticle[] {
   return Array.from({ length: count }, () => ({
     angle: Math.random() * Math.PI * 2,
-    radiusFrac: 0.25 + Math.random() * 0.75,
-    speed: 0.05 + Math.random() * 0.2,
-    size: 0.6 + Math.random() * 1.8,
+    radiusFrac: 0.15 + Math.random() * 0.85,
+    speed: 0.02 + Math.random() * 0.08,
+    size: 0.7 + Math.random() * 1.5,
     twinkle: Math.random() * Math.PI * 2
   }));
 }
 
-let glyphCharCache: Map<string, string> = new Map();
-function repeatToLength(text: string, chars: number): string {
-  const key = `${text}:${chars}`;
-  const cached = glyphCharCache.get(key);
-  if (cached) return cached;
-  let out = text;
-  while (out.length < chars) out += text;
-  out = out.slice(0, chars);
-  glyphCharCache.set(key, out);
-  return out;
+/** 8-sided faceted crystal polygon offsets extracted from reference: raphael.png */
+const FACET_OFFSETS = [
+  { angle: -Math.PI * 0.5, rFactor: 1.05 },      // top
+  { angle: -Math.PI * 0.28, rFactor: 1.16 },     // top-right
+  { angle: -Math.PI * 0.04, rFactor: 0.92 },     // right
+  { angle: Math.PI * 0.18, rFactor: 1.04 },      // bottom-right
+  { angle: Math.PI * 0.5, rFactor: 1.22 },       // bottom apex (distinctive sharp point)
+  { angle: Math.PI * 0.73, rFactor: 0.95 },      // bottom-left
+  { angle: Math.PI, rFactor: 1.15 },             // left apex (distinctive sharp point)
+  { angle: -Math.PI * 0.76, rFactor: 1.06 }      // top-left
+];
+
+function safeR(r: number, fallback = 1): number {
+  return Number.isFinite(r) && r > 0.001 ? r : fallback;
 }
 
-function drawCircularText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  radius: number,
-  rotation: number,
-  fontPx: number,
-  color: string,
-  alpha: number
-) {
-  // No per-character shadowBlur here: blur is one of the most expensive
-  // Canvas2D operations, and this draws 100+ characters/frame at 60fps —
-  // per-glyph blur was enough to crash the renderer/GPU process on real
-  // hardware even though it looked fine in low-load headless testing.
-  const angleStep = (fontPx * 1.05) / radius;
-  const neededChars = Math.ceil((Math.PI * 2) / angleStep);
-  const loop = repeatToLength(text, neededChars);
-
-  ctx.save();
-  ctx.rotate(rotation);
-  ctx.font = `${fontPx}px "Segoe UI", system-ui, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = color;
-
-  for (let i = 0; i < loop.length; i++) {
-    const ch = loop[i];
-    if (ch === ' ') continue;
-    const angle = i * angleStep;
-    ctx.save();
-    ctx.rotate(angle);
-    ctx.translate(0, -radius);
-    ctx.rotate(Math.PI / 2);
-    ctx.fillText(ch, 0, 0);
-    ctx.restore();
-  }
-  ctx.restore();
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
 /**
- * One ring of discrete, evenly-spaced readable words (reference:
- * raphael.png) rather than a dense repeating strip of characters. Assumes
- * the context is already translated to the circle's center.
+ * Draw circular word ring following the circumference path cleanly.
+ * Matches the orientation and spacing of glyphs in raphael.png.
  */
 function drawWordRing(
   ctx: CanvasRenderingContext2D,
@@ -124,57 +121,33 @@ function drawWordRing(
   color: string,
   alpha: number
 ) {
-  const angleStep = (Math.PI * 2) / words.length;
-  const charAngle = (fontPx * 0.62) / radius;
+  const safeRadius = safeR(radius, 50);
+  const wordCount = words.length;
+  const anglePerSlot = (Math.PI * 2) / wordCount;
+  const charAngle = (fontPx * 0.65) / safeRadius;
 
   ctx.save();
-  ctx.font = `600 ${fontPx}px "Segoe UI", system-ui, sans-serif`;
+  ctx.font = `600 ${fontPx}px "Segoe UI", "Inter", system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
+  ctx.globalAlpha = clamp01(alpha);
 
-  words.forEach((word, i) => {
-    const centerAngle = rotation + i * angleStep;
+  for (let w = 0; w < wordCount; w++) {
+    const word = words[w];
+    const centerAngle = rotation + w * anglePerSlot;
     const startOffset = -((word.length - 1) / 2) * charAngle;
+
     for (let c = 0; c < word.length; c++) {
       const ch = word[c];
       if (ch === ' ') continue;
       const a = centerAngle + startOffset + c * charAngle;
       ctx.save();
       ctx.rotate(a);
-      ctx.translate(0, -radius);
-      ctx.rotate(Math.PI / 2);
+      ctx.translate(0, -safeRadius);
+      // Tangent to the circle arc
       ctx.fillText(ch, 0, 0);
       ctx.restore();
-    }
-  });
-  ctx.restore();
-}
-
-/**
- * Vertical strips of drifting code-like characters along the left/right
- * edges (reference: raphael.png). Pure screen-space decoration, drawn
- * before the cx/cy translate used by the circular elements.
- */
-function drawEdgeCodeColumns(ctx: CanvasRenderingContext2D, width: number, height: number, tSec: number, color: string) {
-  const rowH = 14;
-  const colInset = Math.max(14, width * 0.018);
-  const columns = [colInset, width - colInset];
-  const scrollPx = (tSec * 18) % rowH;
-  const rows = Math.ceil(height / rowH) + 1;
-
-  ctx.save();
-  ctx.font = '10px "Consolas", "Courier New", monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = hex2rgba(color, 0.4);
-
-  for (const x of columns) {
-    for (let r = 0; r < rows; r++) {
-      const charIndex = (r + Math.floor(tSec * 1.5) + Math.round(x)) % EDGE_CODE_CHARS.length;
-      const y = r * rowH - scrollPx;
-      ctx.fillText(EDGE_CODE_CHARS[charIndex], x, y);
     }
   }
   ctx.restore();
@@ -196,250 +169,292 @@ export interface DrawParams {
 
 export function drawFrame(p: DrawParams): void {
   const { ctx, width, height, tSec, state, audio, tunables, quality, particles, completionPulseAge } = p;
-  const motion = STATE_MOTION[state];
-  const tint = TINTS[motion.tint];
+  if (!width || !height || width <= 0 || height <= 0) return;
+
+  const motion = STATE_MOTION[state] || STATE_MOTION.idle;
+  const tint = TINTS[motion.tint] || TINTS.gold;
   const cx = width / 2;
   const cy = height / 2;
-  const maxR = Math.min(width, height) / 2;
+  const maxR = safeR(Math.min(width, height) / 2, 100);
 
-  ctx.clearRect(0, 0, width, height);
-
-  // --- 1. Atmospheric background -------------------------------------
+  // Bulletproof state protection: guarantee clean source-over and identity transform on entry and exit
   ctx.save();
-  const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR * 1.4);
-  bg.addColorStop(0, '#0c1016');
-  bg.addColorStop(0.55, '#090c11');
-  bg.addColorStop(1, '#05070a');
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, width, height);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1.0;
 
-  if (quality !== 'low') {
-    const blobCount = quality === 'high' ? 4 : 2;
-    for (let i = 0; i < blobCount; i++) {
-      const a = tSec * 0.03 * motion.outerSpeed * 20 + (i * Math.PI * 2) / blobCount;
-      const bx = cx + Math.cos(a) * maxR * 0.7;
-      const by = cy + Math.sin(a) * maxR * 0.55;
-      const r = maxR * 0.6;
-      const grad = ctx.createRadialGradient(bx, by, 0, bx, by, r);
-      const hue = i % 2 === 0 ? tint.teal : '#2b4a8a';
-      grad.addColorStop(0, hex2rgba(hue, 0.12));
-      grad.addColorStop(1, hex2rgba(hue, 0));
-      ctx.fillStyle = grad;
+  try {
+    // 1. Pristine Cosmic Void Background
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#020305';
+    ctx.fillRect(0, 0, width, height);
+
+    // Subtle radial depth gradient in the center
+    const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR * 1.3);
+    bgGrad.addColorStop(0, '#090d14');
+    bgGrad.addColorStop(0.5, '#05070a');
+    bgGrad.addColorStop(1, '#020305');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, width, height);
+
+    // 2. Star Dust Particles (Twinkling cosmic specks)
+    ctx.save();
+    ctx.translate(cx, cy);
+    const audioTwinkle = (audio.treble || 0) * tunables.audioSensitivity * 0.4;
+    for (let i = 0; i < particles.length; i++) {
+      const p = particles[i];
+      const drift = tSec * p.speed * motion.particleSpeed;
+      const angle = p.angle + drift;
+      const r = p.radiusFrac * maxR * 1.2;
+      const x = Math.cos(angle) * r;
+      const y = Math.sin(angle) * r;
+      const twinkle = 0.4 + 0.6 * Math.sin(tSec * 2.5 + p.twinkle + audioTwinkle);
+      const size = Math.max(0.4, p.size * tunables.particleDensity * (0.8 + twinkle * 0.4));
+      ctx.globalAlpha = clamp01(0.12 + twinkle * 0.45);
+      ctx.fillStyle = r < maxR * 0.5 ? tint.starParticle : '#dce8f5';
       ctx.beginPath();
-      ctx.arc(bx, by, r, 0, Math.PI * 2);
+      ctx.arc(x, y, size, 0, Math.PI * 2);
       ctx.fill();
     }
-  }
-  ctx.restore();
+    ctx.restore();
 
-  // --- 2. Background particle field -----------------------------------
-  ctx.save();
-  ctx.translate(cx, cy);
-  for (const particle of particles) {
-    const drift = tSec * particle.speed * motion.particleSpeed * (1 + audio.treble * tunables.audioSensitivity * 0.6);
-    const angle = particle.angle + drift;
-    const r = particle.radiusFrac * maxR * 1.25;
-    const x = Math.cos(angle) * r;
-    const y = Math.sin(angle) * r;
-    const twinkle = 0.5 + 0.5 * Math.sin(tSec * 2 + particle.twinkle);
-    const size = particle.size * tunables.particleDensity * (0.8 + twinkle * 0.6);
-    ctx.globalAlpha = (0.15 + twinkle * 0.35) * clamp01(motion.energy + audio.amplitude * 0.3);
-    ctx.fillStyle = r < maxR * 0.6 ? tint.particle : '#bfe6df';
+    // 3. Delicate Concentric Compass / Orbit Rings
+    ctx.save();
+    ctx.translate(cx, cy);
+    const ringRadii = [
+      maxR * 0.33, // inner orbit
+      maxR * 0.46, // mid-inner orbit
+      maxR * 0.60, // glyph track
+      maxR * 0.76, // outer orbit
+      maxR * 0.90  // outermost boundary
+    ];
+
+    for (let i = 0; i < ringRadii.length; i++) {
+      const r = ringRadii[i];
+      const isGlyphRing = i === 2;
+      ctx.strokeStyle = isGlyphRing ? tint.ringLine : 'rgba(235, 165, 60, 0.16)';
+      ctx.lineWidth = isGlyphRing ? 1.2 : 0.8;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Tick marks on the orbits (hud instrument ticks matching raphael.png)
+      if (quality !== 'low' && (i === 1 || i === 2 || i === 3)) {
+        const tickCount = i === 2 ? 36 : 24;
+        const tickLen = 3.5;
+        ctx.strokeStyle = 'rgba(235, 165, 60, 0.22)';
+        ctx.lineWidth = 0.8;
+        for (let t = 0; t < tickCount; t++) {
+          const a = (t / tickCount) * Math.PI * 2;
+          const x0 = Math.cos(a) * (r - tickLen * 0.5);
+          const y0 = Math.sin(a) * (r - tickLen * 0.5);
+          const x1 = Math.cos(a) * (r + tickLen * 0.5);
+          const y1 = Math.sin(a) * (r + tickLen * 0.5);
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          ctx.lineTo(x1, y1);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Radial compass spoke lines (subtle axes crossing through center)
+    const spokeCount = 12;
+    ctx.strokeStyle = tint.spokeLine;
+    ctx.lineWidth = 0.8;
+    for (let s = 0; s < spokeCount; s++) {
+      const a = (s / spokeCount) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * (maxR * 0.28), Math.sin(a) * (maxR * 0.28));
+      ctx.lineTo(Math.cos(a) * (maxR * 0.92), Math.sin(a) * (maxR * 0.92));
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // 4. Amber/Gold Glyph Word Ring (Reference: raphael.png)
+    const glyphRingR = maxR * 0.60;
+    const ringRotation = tSec * motion.ringSpeed * tunables.rotationSpeed;
+    const flickerAlpha = motion.flicker ? 0.6 + 0.4 * Math.sin(tSec * 10) : 1.0;
+    ctx.save();
+    ctx.translate(cx, cy);
+    drawWordRing(
+      ctx,
+      GLYPH_RING_WORDS,
+      glyphRingR,
+      ringRotation,
+      Math.max(10, Math.round(maxR * 0.034)),
+      tint.glyphText,
+      0.9 * tunables.ringIntensity * flickerAlpha
+    );
+
+    // Thinking state: elegant scanning sweep arc
+    if (motion.scanning) {
+      const sweepAngle = tSec * 1.5;
+      const scanGrad = ctx.createConicGradient(sweepAngle, 0, 0);
+      scanGrad.addColorStop(0, 'rgba(255, 168, 59, 0)');
+      scanGrad.addColorStop(0.04, 'rgba(255, 168, 59, 0.28)');
+      scanGrad.addColorStop(0.08, 'rgba(255, 168, 59, 0)');
+      scanGrad.addColorStop(1, 'rgba(255, 168, 59, 0)');
+      ctx.fillStyle = scanGrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, maxR * 0.76, 0, Math.PI * 2);
+      ctx.arc(0, 0, maxR * 0.33, 0, Math.PI * 2, true);
+      ctx.fill('evenodd');
+    }
+    ctx.restore();
+
+    // 5. Center Core & Faceted Geometric Polygon
+    const bassPulse = (audio.bass || 0) * tunables.audioSensitivity * 0.15;
+    const voicePulse = (audio.amplitude || 0) * tunables.audioSensitivity * 0.12;
+    const breathPulse = Math.sin(tSec * Math.PI * 2 * motion.pulseSpeed) * motion.pulseAmplitude;
+
+    // Completion pulse: a gentle, beautiful golden expansion (NO WHITE FLASH!)
+    const completionFactor = completionPulseAge !== null && completionPulseAge >= 0 && completionPulseAge < 1.0
+      ? Math.max(0, 1 - completionPulseAge) * 0.25
+      : 0;
+
+    const polyBaseR = safeR(maxR * 0.22 * (1 + breathPulse + bassPulse * 0.5 + completionFactor * 0.3) * tunables.coreIntensity, 20);
+
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // A. Warm Golden Halo Corona behind the star
+    const coronaR = safeR(polyBaseR * 1.6 * (1 + voicePulse * 0.8), 30);
+    const coronaGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, coronaR);
+    coronaGrad.addColorStop(0, tint.coronaInner);
+    coronaGrad.addColorStop(0.35, tint.coronaMid);
+    coronaGrad.addColorStop(0.8, 'rgba(255, 140, 20, 0.08)');
+    coronaGrad.addColorStop(1, tint.coronaOuter);
+    ctx.fillStyle = coronaGrad;
     ctx.beginPath();
-    ctx.arc(x, y, Math.max(0.3, size), 0, Math.PI * 2);
+    ctx.arc(0, 0, coronaR, 0, Math.PI * 2);
     ctx.fill();
-  }
-  ctx.restore();
 
-  // --- 3. Outer thin rings + edge code columns --------------------------
-  const outerRotation = tSec * motion.outerSpeed * tunables.rotationSpeed;
-  ctx.save();
-  ctx.translate(cx, cy);
-  for (let i = 0; i < 3; i++) {
-    const r = maxR * (0.99 - i * 0.045);
-    ctx.save();
-    ctx.rotate(outerRotation * (i % 2 === 0 ? 1 : -1));
-    ctx.strokeStyle = hex2rgba(tint.ring, 0.1 * tunables.ringIntensity);
-    ctx.lineWidth = 1;
+    // B. Sharp Star Flare Needles / Spikes (Piercing outward from the core through the polygon)
+    const flareIntensity = clamp01(motion.energy * (0.8 + voicePulse * 1.5 + completionFactor * 0.5));
+    const flareRHoriz = safeR(polyBaseR * (1.75 + voicePulse * 0.6), 25);
+    const flareRVert = safeR(polyBaseR * (1.45 + voicePulse * 0.4), 20);
+    const flareRDiag = safeR(polyBaseR * (1.25 + voicePulse * 0.3), 18);
+
+    // Helper to draw tapered sharp needle spike
+    const drawSpike = (angle: number, length: number, halfWidth: number) => {
+      ctx.save();
+      ctx.rotate(angle);
+      const spikeGrad = ctx.createLinearGradient(0, 0, length, 0);
+      spikeGrad.addColorStop(0, '#ffffff');
+      spikeGrad.addColorStop(0.25, 'rgba(255, 230, 170, 0.85)');
+      spikeGrad.addColorStop(0.7, 'rgba(255, 170, 50, 0.35)');
+      spikeGrad.addColorStop(1, 'rgba(255, 150, 20, 0)');
+
+      ctx.fillStyle = spikeGrad;
+      ctx.globalAlpha = flareIntensity;
+      ctx.beginPath();
+      ctx.moveTo(0, -halfWidth);
+      ctx.lineTo(length, 0);
+      ctx.lineTo(0, halfWidth);
+      ctx.closePath();
+      ctx.fill();
+
+      // Mirror spike in opposite direction
+      const backGrad = ctx.createLinearGradient(0, 0, -length, 0);
+      backGrad.addColorStop(0, '#ffffff');
+      backGrad.addColorStop(0.25, 'rgba(255, 230, 170, 0.85)');
+      backGrad.addColorStop(0.7, 'rgba(255, 170, 50, 0.35)');
+      backGrad.addColorStop(1, 'rgba(255, 150, 20, 0)');
+      ctx.fillStyle = backGrad;
+      ctx.beginPath();
+      ctx.moveTo(0, -halfWidth);
+      ctx.lineTo(-length, 0);
+      ctx.lineTo(0, halfWidth);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    };
+
+    // Horizontal prominent needle spike (0 deg)
+    drawSpike(0, flareRHoriz, 2.8);
+    // Vertical prominent needle spike (90 deg)
+    drawSpike(Math.PI / 2, flareRVert, 2.4);
+    // Diagonal cross spikes (45 deg and 135 deg)
+    drawSpike(Math.PI / 4, flareRDiag, 1.8);
+    drawSpike((Math.PI * 3) / 4, flareRDiag, 1.8);
+
+    // C. Central Brilliant White Star Hotspot
+    const starHotR = safeR(polyBaseR * 0.36 * (1 + bassPulse * 0.4), 8);
+    const starGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, starHotR);
+    starGrad.addColorStop(0, '#ffffff');
+    starGrad.addColorStop(0.4, '#ffffff');
+    starGrad.addColorStop(0.75, tint.coreHalo);
+    starGrad.addColorStop(1, 'rgba(255, 200, 80, 0)');
+    ctx.fillStyle = starGrad;
     ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.arc(0, 0, starHotR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // D. The Distinctive 8-Sided Faceted Geometric White Polygon (Octagonal Crystal Shield)
+    // Reference: raphael.png - Crisp, straight geometric segments with soft outer glow
+    ctx.beginPath();
+    for (let f = 0; f < FACET_OFFSETS.length; f++) {
+      const facet = FACET_OFFSETS[f];
+      const r = polyBaseR * facet.rFactor;
+      const x = Math.cos(facet.angle) * r;
+      const y = Math.sin(facet.angle) * r;
+      if (f === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+
+    // Soft outer glow for the polygon
+    ctx.save();
+    ctx.strokeStyle = tint.polyGlow;
+    ctx.lineWidth = 5.5;
+    ctx.globalAlpha = 0.4;
+    ctx.lineJoin = 'miter';
+    ctx.miterLimit = 4;
     ctx.stroke();
     ctx.restore();
-  }
-  ctx.restore();
 
-  if (quality !== 'low') {
-    drawEdgeCodeColumns(ctx, width, height, tSec, tint.teal);
-  }
-
-  // --- 4. Single prominent word ring -------------------------------------
-  const midRotation = tSec * motion.ringSpeed * tunables.rotationSpeed;
-  const flickerAlpha = motion.flicker ? 0.55 + 0.45 * Math.sin(tSec * 9) : 1;
-  ctx.save();
-  ctx.translate(cx, cy);
-  const wordRingR = maxR * 0.68;
-  ctx.strokeStyle = hex2rgba(tint.outer, 0.22 * tunables.ringIntensity);
-  ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  ctx.arc(0, 0, wordRingR, 0, Math.PI * 2);
-  ctx.stroke();
-
-  drawWordRing(
-    ctx,
-    GLYPH_RING_WORDS,
-    wordRingR,
-    midRotation,
-    Math.max(10, maxR * 0.034),
-    tint.outer,
-    0.85 * tunables.ringIntensity * flickerAlpha
-  );
-
-  // Thinking: a scanning sweep arc.
-  if (motion.scanning) {
-    const sweepAngle = tSec * 1.2;
-    const grad = ctx.createConicGradient(sweepAngle, 0, 0);
-    grad.addColorStop(0, hex2rgba(tint.outer, 0));
-    grad.addColorStop(0.04, hex2rgba(tint.outer, 0.35));
-    grad.addColorStop(0.08, hex2rgba(tint.outer, 0));
-    grad.addColorStop(1, hex2rgba(tint.outer, 0));
+    // Solid brilliant crisp white stroke
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(0, 0, maxR * 0.8, 0, Math.PI * 2);
-    ctx.arc(0, 0, maxR * 0.45, 0, Math.PI * 2, true);
-    ctx.fill('evenodd');
-    ctx.restore();
-  }
-  ctx.restore();
-
-  // --- 5. Radial rays, reaching toward the frame edges --------------------
-  const rayLevel = clamp01(motion.rayBoost * tunables.rayIntensity * (0.6 + audio.highMid * tunables.audioSensitivity));
-  const rayCount = quality === 'high' ? 64 : quality === 'medium' ? 36 : 16;
-  const rayReach = Math.max(width, height) * 0.75;
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < rayCount; i++) {
-    const a = (i / rayCount) * Math.PI * 2 + tSec * 0.05 * motion.ringSpeed * 10;
-    const len = rayReach * (0.45 + rayLevel * 0.55) * (0.75 + 0.25 * Math.sin(i * 12.9898 + tSec));
-    const grad = ctx.createLinearGradient(0, 0, Math.cos(a) * len, Math.sin(a) * len);
-    grad.addColorStop(0, hex2rgba(tint.core, 0.3 * rayLevel));
-    grad.addColorStop(0.15, hex2rgba(tint.outer, 0.16 * rayLevel));
-    grad.addColorStop(1, hex2rgba(tint.outer, 0));
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 1 + rayLevel;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(Math.cos(a) * len, Math.sin(a) * len);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // --- 6. Core -------------------------------------------------------------
-  const pulse =
-    Math.sin(tSec * Math.PI * 2 * motion.pulseSpeed) * motion.pulseAmplitude +
-    audio.bass * tunables.audioSensitivity * 0.18;
-  const completionBoost = completionPulseAge !== null ? Math.max(0, 1 - completionPulseAge / 1.1) : 0;
-  const coreR = maxR * (0.17 + pulse) * tunables.coreIntensity * (1 + completionBoost * 0.5);
-  const bloomR = coreR * (2.2 + tunables.bloom * 1.3 + audio.amplitude * 1.2);
-
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.globalCompositeOperation = 'lighter';
-
-  // bloom halo
-  const bloom = ctx.createRadialGradient(0, 0, 0, 0, 0, bloomR);
-  bloom.addColorStop(0, hex2rgba(tint.core, 0.55 * motion.energy));
-  bloom.addColorStop(0.4, hex2rgba(tint.mid, 0.22 * motion.energy));
-  bloom.addColorStop(1, hex2rgba(tint.outer, 0));
-  ctx.fillStyle = bloom;
-  ctx.beginPath();
-  ctx.arc(0, 0, bloomR, 0, Math.PI * 2);
-  ctx.fill();
-
-  // jagged irregular ring (distortion driven)
-  const jagPoints = 14;
-  const jagAmp = coreR * 0.18 * tunables.distortion * (1 + audio.mid * 0.5);
-  ctx.beginPath();
-  for (let i = 0; i <= jagPoints; i++) {
-    const a = (i / jagPoints) * Math.PI * 2;
-    const n = Math.sin(a * 5 + tSec * 1.3) * 0.5 + Math.sin(a * 3 - tSec * 0.7) * 0.5;
-    const r = coreR * 1.35 + n * jagAmp;
-    const x = Math.cos(a) * r;
-    const y = Math.sin(a) * r;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-  ctx.strokeStyle = hex2rgba(tint.core, 0.9);
-  ctx.lineWidth = Math.max(2, coreR * 0.07);
-  ctx.shadowColor = tint.core;
-  ctx.shadowBlur = quality === 'low' ? 4 : 18;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  // bright center burst
-  const core = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR);
-  core.addColorStop(0, '#ffffff');
-  core.addColorStop(0.35, tint.core);
-  core.addColorStop(1, hex2rgba(tint.mid, 0));
-  ctx.fillStyle = core;
-  ctx.beginPath();
-  ctx.arc(0, 0, coreR, 0, Math.PI * 2);
-  ctx.fill();
-
-  // fine center sparkle rays
-  const sparkCount = quality === 'high' ? 18 : 10;
-  for (let i = 0; i < sparkCount; i++) {
-    const a = (i / sparkCount) * Math.PI * 2 + tSec * 0.4;
-    const len = coreR * (1.1 + 0.6 * Math.abs(Math.sin(a * 4 + tSec * 2)));
-    ctx.strokeStyle = hex2rgba('#ffffff', 0.5);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(a) * coreR * 0.3, Math.sin(a) * coreR * 0.3);
-    ctx.lineTo(Math.cos(a) * len, Math.sin(a) * len);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // --- 7. Waiting-for-permission cue: a slow outward pulse ring -----------
-  if (state === 'waiting_for_permission') {
-    const wave = (tSec * 0.3) % 1;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.strokeStyle = hex2rgba(tint.outer, (1 - wave) * 0.4);
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, maxR * (0.2 + wave * 0.6), 0, Math.PI * 2);
+    ctx.strokeStyle = tint.polyStroke;
+    ctx.lineWidth = 3.2;
+    ctx.lineJoin = 'miter';
+    ctx.miterLimit = 4;
+    ctx.globalAlpha = 1.0;
     ctx.stroke();
     ctx.restore();
-  }
 
-  // --- 8. Completion pulse: expanding bright ring -------------------------
-  if (completionPulseAge !== null && completionPulseAge < 1.1) {
-    const wave = completionPulseAge / 1.1;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.strokeStyle = hex2rgba('#ffffff', (1 - wave) * 0.8);
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(0, 0, maxR * (0.15 + wave * 0.85), 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.restore();
+
+    // 6. Gentle Completion Ripple Ring (Elegant golden ripple, NO full screen flash)
+    if (completionPulseAge !== null && completionPulseAge >= 0 && completionPulseAge < 1.1) {
+      const wave = completionPulseAge / 1.1;
+      const rippleR = safeR(polyBaseR * (1.1 + wave * 2.8), 20);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.strokeStyle = `rgba(255, 215, 120, ${(1 - wave) * 0.45})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, rippleR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 7. Waiting-for-permission pulse
+    if (state === 'waiting_for_permission') {
+      const wave = (tSec * 0.4) % 1;
+      const warnR = safeR(polyBaseR * (1.2 + wave * 1.5), 20);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.strokeStyle = `rgba(255, 180, 50, ${(1 - wave) * 0.5})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, warnR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  } finally {
+    // Guarantees that any transforms, alphas, or composite operations are reset
     ctx.restore();
   }
-}
-
-function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-
-function hex2rgba(hex: string, alpha: number): string {
-  const h = hex.replace('#', '');
-  const r = parseInt(h.substring(0, 2), 16);
-  const g = parseInt(h.substring(2, 4), 16);
-  const b = parseInt(h.substring(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
