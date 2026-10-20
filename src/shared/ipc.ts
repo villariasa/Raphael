@@ -80,6 +80,19 @@ export type SpeakResult =
  */
 export type VoiceOption = 'en-US-female' | 'ja-JP-female';
 
+/** Lifetime usage statistics Raphael keeps locally (§22: never transmitted). */
+export interface ConversationStats {
+  firstSeen: string;
+  lastSeen: string;
+  totalTurns: number;
+  totalActionsPlanned: number;
+  actionsByKind: Record<string, number>;
+  successes: number;
+  failures: number;
+  daysActive: string[];
+  turnsByDay: Record<string, number>;
+}
+
 export const VOICE_OPTIONS: Array<{ id: VoiceOption; label: string }> = [
   { id: 'en-US-female', label: 'English (US) — Female' },
   { id: 'ja-JP-female', label: '日本語 (Japanese) — Female' }
@@ -104,11 +117,14 @@ export interface RaphaelApi {
   setAlwaysAllowAll(enabled: boolean): Promise<void>;
   getVoice(): Promise<VoiceOption>;
   setVoice(voice: VoiceOption): Promise<void>;
+  toggleFullscreen(): Promise<void>;
+  getStats(): Promise<ConversationStats>;
 
   onPermissionRequest(cb: (req: PermissionRequest) => void): () => void;
   onTaskStatus(cb: (update: TaskStatusUpdate) => void): () => void;
   onActivity(cb: (entry: ActivityEntry) => void): () => void;
   onAiSetupProgress(cb: (progress: AiSetupProgress) => void): () => void;
+  onFullscreenChange(cb: (isFullscreen: boolean) => void): () => void;
 }
 
 export const IPC = {
@@ -129,8 +145,11 @@ export const IPC = {
   setAlwaysAllowAll: 'raphael:setAlwaysAllowAll',
   getVoice: 'raphael:getVoice',
   setVoice: 'raphael:setVoice',
+  toggleFullscreen: 'raphael:toggleFullscreen',
+  getStats: 'raphael:getStats',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',
-  aiSetupEvent: 'raphael:aiSetupEvent'
+  aiSetupEvent: 'raphael:aiSetupEvent',
+  fullscreenEvent: 'raphael:fullscreenEvent'
 } as const;

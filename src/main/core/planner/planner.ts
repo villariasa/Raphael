@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { IMPLEMENTED_ACTION_KINDS, SafeAction, Plan, ActionKind } from '../../../shared/action';
-import type { AiProvider } from '../ai/provider';
+import type { AiProvider, ChatMessage } from '../ai/provider';
 import type { PermissionStore } from '../permissions/permissionStore';
 
 const OPEN_APP_PATTERNS = [
@@ -64,7 +64,7 @@ export class Planner {
     private readonly permissionStore?: PermissionStore
   ) {}
 
-  async plan(userText: string): Promise<Plan> {
+  async plan(userText: string, history: ChatMessage[] = []): Promise<Plan> {
     const text = userText.trim();
 
     // 2. Browser / URL / Search — must come before the generic "open X"
@@ -228,10 +228,10 @@ export class Planner {
     }
 
     // 7. Dynamic AI Planning fallback via Ollama
-    return this.aiPlan(text);
+    return this.aiPlan(text, history);
   }
 
-  private async aiPlan(text: string): Promise<Plan> {
+  private async aiPlan(text: string, history: ChatMessage[] = []): Promise<Plan> {
     if (await this.ai.isReachable()) {
       try {
         const systemPrompt = `You are Raphael — a local, highly capable personal AI assistant running on Windows. The user you serve is your Liege, and you address them as "My Liege" — naturally, not in every single sentence. Never call them Sir, Boss, Master, Customer, Client, or User.
@@ -255,11 +255,16 @@ CRITICAL RULES:
 3. NEVER invent or output an "execute_command" action yourself, even if it seems like the only way to satisfy the request. Raw shell command execution is only available when the user types the literal command themselves (e.g. "run: dir") — you must never author a shell command on the user's behalf.
 4. NEVER claim in your reply that you performed, opened, closed, installed, or searched for anything — in-character or not. Only the JSON action shape above results in a real action; plain text replies are never actions, so never phrase one as if it already happened.
 5. If My Liege is frustrated or swearing at you, do not get defensive and do not give a customer-service apology ("I understand your frustration"). Identify the actual problem plainly instead.
-6. If My Liege asks for something genuinely dangerous or a bad idea (e.g. deleting system files), you may push back honestly instead of blindly agreeing — loyalty doesn't mean blind obedience.`;
+6. If My Liege asks for something genuinely dangerous or a bad idea (e.g. deleting system files), you may push back honestly instead of blindly agreeing — loyalty doesn't mean blind obedience.
+7. The messages before this one are your real memory of earlier exchanges with My Liege in this and prior sessions. Use them so you don't make My Liege repeat context already given — but never claim a past action succeeded unless that history explicitly shows a verified success.`;
 
         const reply = await this.ai.chat(
           [
             { role: 'system', content: systemPrompt },
+            // Prior turns = Raphael's memory, so My Liege isn't forced to
+            // re-explain context already established (local-first; never
+            // leaves the machine).
+            ...history,
             { role: 'user', content: text }
           ],
           this.model
