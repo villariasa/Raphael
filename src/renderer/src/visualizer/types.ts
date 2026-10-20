@@ -46,8 +46,20 @@ export const DEFAULT_TUNABLES: VisualizerTunables = {
   audioSensitivity: 1
 };
 
-export const GLYPH_RING_TEXTS = [
-  'RAPHAEL · LOCAL INTELLIGENCE · VOICE PROCESSING · COMPUTER CONTROL · ',
-  'EXECUTION ENGINE · USER AUTHORIZATION · SYSTEM ACTIVE · LOCAL AI · ',
-  'TASK PROCESSING · SYSTEM ONLINE · TASK EXECUTION · RAPHAEL · '
+/** Single prominent glyph ring (reference: raphael.png) — one readable
+ * word/phrase per angular slot, not a dense repeating strip. */
+export const GLYPH_RING_WORDS = [
+  'RAPHAEL',
+  'VOICE PROCESSING',
+  'COMPUTER CONTROL',
+  'EXECUTION ENGINE',
+  'USER AUTHORIZATION',
+  'SYSTEM ACTIVE',
+  'LOCAL AI',
+  'TASK PROCESSING',
+  'SYSTEM ONLINE',
+  'LOCAL INTELLIGENCE'
 ];
+
+/** Vertical edge "code column" text (reference: raphael.png left/right strips). */
+export const EDGE_CODE_CHARS = '01RAPHAEL01LOCAL01AI01SYSTEM01ONLINE01';

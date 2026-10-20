@@ -1,4 +1,4 @@
-import { AudioBands, QualityTier, RaphaelState, VisualizerTunables, GLYPH_RING_TEXTS } from './types';
+import { AudioBands, QualityTier, RaphaelState, VisualizerTunables, GLYPH_RING_WORDS, EDGE_CODE_CHARS } from './types';
 
 interface StateMotion {
   /** 0..1 how "awake"/bright the whole piece is */
@@ -78,9 +78,12 @@ function drawCircularText(
   rotation: number,
   fontPx: number,
   color: string,
-  alpha: number,
-  glowBlur: number
+  alpha: number
 ) {
+  // No per-character shadowBlur here: blur is one of the most expensive
+  // Canvas2D operations, and this draws 100+ characters/frame at 60fps —
+  // per-glyph blur was enough to crash the renderer/GPU process on real
+  // hardware even though it looked fine in low-load headless testing.
   const angleStep = (fontPx * 1.05) / radius;
   const neededChars = Math.ceil((Math.PI * 2) / angleStep);
   const loop = repeatToLength(text, neededChars);
@@ -92,8 +95,6 @@ function drawCircularText(
   ctx.textBaseline = 'middle';
   ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = glowBlur;
 
   for (let i = 0; i < loop.length; i++) {
     const ch = loop[i];
@@ -105,6 +106,76 @@ function drawCircularText(
     ctx.rotate(Math.PI / 2);
     ctx.fillText(ch, 0, 0);
     ctx.restore();
+  }
+  ctx.restore();
+}
+
+/**
+ * One ring of discrete, evenly-spaced readable words (reference:
+ * raphael.png) rather than a dense repeating strip of characters. Assumes
+ * the context is already translated to the circle's center.
+ */
+function drawWordRing(
+  ctx: CanvasRenderingContext2D,
+  words: string[],
+  radius: number,
+  rotation: number,
+  fontPx: number,
+  color: string,
+  alpha: number
+) {
+  const angleStep = (Math.PI * 2) / words.length;
+  const charAngle = (fontPx * 0.62) / radius;
+
+  ctx.save();
+  ctx.font = `600 ${fontPx}px "Segoe UI", system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+
+  words.forEach((word, i) => {
+    const centerAngle = rotation + i * angleStep;
+    const startOffset = -((word.length - 1) / 2) * charAngle;
+    for (let c = 0; c < word.length; c++) {
+      const ch = word[c];
+      if (ch === ' ') continue;
+      const a = centerAngle + startOffset + c * charAngle;
+      ctx.save();
+      ctx.rotate(a);
+      ctx.translate(0, -radius);
+      ctx.rotate(Math.PI / 2);
+      ctx.fillText(ch, 0, 0);
+      ctx.restore();
+    }
+  });
+  ctx.restore();
+}
+
+/**
+ * Vertical strips of drifting code-like characters along the left/right
+ * edges (reference: raphael.png). Pure screen-space decoration, drawn
+ * before the cx/cy translate used by the circular elements.
+ */
+function drawEdgeCodeColumns(ctx: CanvasRenderingContext2D, width: number, height: number, tSec: number, color: string) {
+  const rowH = 14;
+  const colInset = Math.max(14, width * 0.018);
+  const columns = [colInset, width - colInset];
+  const scrollPx = (tSec * 18) % rowH;
+  const rows = Math.ceil(height / rowH) + 1;
+
+  ctx.save();
+  ctx.font = '10px "Consolas", "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = hex2rgba(color, 0.4);
+
+  for (const x of columns) {
+    for (let r = 0; r < rows; r++) {
+      const charIndex = (r + Math.floor(tSec * 1.5) + Math.round(x)) % EDGE_CODE_CHARS.length;
+      const y = r * rowH - scrollPx;
+      ctx.fillText(EDGE_CODE_CHARS[charIndex], x, y);
+    }
   }
   ctx.restore();
 }
@@ -180,63 +251,48 @@ export function drawFrame(p: DrawParams): void {
   }
   ctx.restore();
 
-  // --- 3. Outer thin rings + edge ticks --------------------------------
+  // --- 3. Outer thin rings + edge code columns --------------------------
   const outerRotation = tSec * motion.outerSpeed * tunables.rotationSpeed;
   ctx.save();
   ctx.translate(cx, cy);
-  for (let i = 0; i < 2; i++) {
-    const r = maxR * (0.98 - i * 0.07);
+  for (let i = 0; i < 3; i++) {
+    const r = maxR * (0.99 - i * 0.045);
     ctx.save();
     ctx.rotate(outerRotation * (i % 2 === 0 ? 1 : -1));
-    ctx.strokeStyle = hex2rgba(tint.ring, 0.14 * tunables.ringIntensity);
+    ctx.strokeStyle = hex2rgba(tint.ring, 0.1 * tunables.ringIntensity);
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
-  if (quality !== 'low') {
-    drawCircularText(
-      ctx,
-      'SYSTEM ONLINE · LOCAL AI · ',
-      maxR * 0.99,
-      outerRotation * -1,
-      Math.max(8, maxR * 0.016),
-      tint.ring,
-      0.5 * tunables.ringIntensity,
-      quality === 'high' ? 6 : 0
-    );
-  }
   ctx.restore();
 
-  // --- 4. Mid glyph rings -----------------------------------------------
+  if (quality !== 'low') {
+    drawEdgeCodeColumns(ctx, width, height, tSec, tint.teal);
+  }
+
+  // --- 4. Single prominent word ring -------------------------------------
   const midRotation = tSec * motion.ringSpeed * tunables.rotationSpeed;
   const flickerAlpha = motion.flicker ? 0.55 + 0.45 * Math.sin(tSec * 9) : 1;
   ctx.save();
   ctx.translate(cx, cy);
-  const ringRadii = [maxR * 0.78, maxR * 0.62, maxR * 0.5];
-  const ringDirs = [1, -1, 1];
-  GLYPH_RING_TEXTS.forEach((text, i) => {
-    const r = ringRadii[i];
-    ctx.save();
-    ctx.strokeStyle = hex2rgba(tint.outer, 0.25 * tunables.ringIntensity);
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
+  const wordRingR = maxR * 0.68;
+  ctx.strokeStyle = hex2rgba(tint.outer, 0.22 * tunables.ringIntensity);
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.arc(0, 0, wordRingR, 0, Math.PI * 2);
+  ctx.stroke();
 
-    drawCircularText(
-      ctx,
-      text,
-      r,
-      midRotation * ringDirs[i] + i,
-      Math.max(9, maxR * 0.032),
-      tint.outer,
-      0.75 * tunables.ringIntensity * flickerAlpha,
-      quality === 'low' ? 0 : 8 + audio.mid * 6
-    );
-  });
+  drawWordRing(
+    ctx,
+    GLYPH_RING_WORDS,
+    wordRingR,
+    midRotation,
+    Math.max(10, maxR * 0.034),
+    tint.outer,
+    0.85 * tunables.ringIntensity * flickerAlpha
+  );
 
   // Thinking: a scanning sweep arc.
   if (motion.scanning) {
@@ -257,17 +313,19 @@ export function drawFrame(p: DrawParams): void {
   }
   ctx.restore();
 
-  // --- 5. Radial rays -----------------------------------------------------
+  // --- 5. Radial rays, reaching toward the frame edges --------------------
   const rayLevel = clamp01(motion.rayBoost * tunables.rayIntensity * (0.6 + audio.highMid * tunables.audioSensitivity));
-  const rayCount = quality === 'high' ? 48 : quality === 'medium' ? 28 : 14;
+  const rayCount = quality === 'high' ? 64 : quality === 'medium' ? 36 : 16;
+  const rayReach = Math.max(width, height) * 0.75;
   ctx.save();
   ctx.translate(cx, cy);
   ctx.globalCompositeOperation = 'lighter';
   for (let i = 0; i < rayCount; i++) {
     const a = (i / rayCount) * Math.PI * 2 + tSec * 0.05 * motion.ringSpeed * 10;
-    const len = maxR * (0.35 + rayLevel * 0.55) * (0.7 + 0.3 * Math.sin(i * 12.9898 + tSec));
+    const len = rayReach * (0.45 + rayLevel * 0.55) * (0.75 + 0.25 * Math.sin(i * 12.9898 + tSec));
     const grad = ctx.createLinearGradient(0, 0, Math.cos(a) * len, Math.sin(a) * len);
-    grad.addColorStop(0, hex2rgba(tint.core, 0.35 * rayLevel));
+    grad.addColorStop(0, hex2rgba(tint.core, 0.3 * rayLevel));
+    grad.addColorStop(0.15, hex2rgba(tint.outer, 0.16 * rayLevel));
     grad.addColorStop(1, hex2rgba(tint.outer, 0));
     ctx.strokeStyle = grad;
     ctx.lineWidth = 1 + rayLevel;

@@ -42,19 +42,28 @@ export class TtsManager {
 
     try {
       if (process.platform === 'win32') {
-        // Windows SAPI via System.Speech, rendered to a WAV file.
+        // Windows SAPI via System.Speech, rendered to a WAV file. Raphael's
+        // voice is female (§21 personality) — SelectVoiceByHints picks
+        // whichever installed voice matches, and silently keeps the
+        // default if the OS has no female voice installed at all.
         const escaped = clean.replace(/'/g, "''");
         const script = [
           'Add-Type -AssemblyName System.Speech;',
           '$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer;',
+          'try { $synth.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female) } catch {}',
           `$synth.SetOutputToWaveFile('${tmpFile.replace(/\\/g, '\\\\')}');`,
           `$synth.Speak('${escaped}');`,
           '$synth.Dispose();'
         ].join(' ');
         await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
       } else if (process.platform === 'darwin') {
-        // `--` stops `say` from treating a leading '-' in clean as a flag.
-        await run('say', ['-o', tmpFile, '--data-format=LEI16@22050', '--', clean]);
+        // Prefer a known female voice; fall back to the system default if
+        // it isn't installed rather than failing the whole request.
+        try {
+          await run('say', ['-v', 'Samantha', '-o', tmpFile, '--data-format=LEI16@22050', '--', clean]);
+        } catch {
+          await run('say', ['-o', tmpFile, '--data-format=LEI16@22050', '--', clean]);
+        }
       } else {
         // Linux: prefer espeak-ng, fall back to espeak. Neither supports a
         // `--` end-of-options sentinel reliably, so reject anything that
@@ -66,7 +75,8 @@ export class TtsManager {
         if (clean.startsWith('-')) {
           return { ok: false, reason: 'Text cannot start with "-".' };
         }
-        await run(engine, ['-w', tmpFile, clean]);
+        // en+f3 is espeak's built-in female voice variant.
+        await run(engine, ['-v', 'en+f3', '-w', tmpFile, clean]);
       }
 
       const buffer = await fs.readFile(tmpFile);

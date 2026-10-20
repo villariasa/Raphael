@@ -23,7 +23,7 @@ interface Props {
   className?: string;
 }
 
-const PARTICLE_COUNTS: Record<QualityTier, number> = { high: 220, medium: 110, low: 45 };
+const PARTICLE_COUNTS: Record<QualityTier, number> = { high: 160, medium: 80, low: 35 };
 
 export function RaphaelVisualizer({
   state,
@@ -36,7 +36,9 @@ export function RaphaelVisualizer({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const particlesRef = useRef<FrameParticle[]>([]);
-  const [quality, setQuality] = useState<QualityTier>('high');
+  // Start conservative: better to quietly upgrade once FPS proves healthy
+  // than to open at full cost on unknown hardware (§12).
+  const [quality, setQuality] = useState<QualityTier>('medium');
   const qualityRef = useRef(quality);
   qualityRef.current = forceQuality ?? quality;
 
@@ -84,6 +86,7 @@ export function RaphaelVisualizer({
     let frames = 0;
     let fps = 60;
     let lowFrameStreak = 0;
+    let highFrameStreak = 0;
 
     const loop = (now: number) => {
       if (startTime === null) startTime = now;
@@ -96,13 +99,23 @@ export function RaphaelVisualizer({
         lastFpsSample = now;
 
         // Adaptive quality (§12): only auto-downgrade/upgrade when not
-        // pinned by the debug panel.
+        // pinned by the debug panel. Downgrades react fast (protect against
+        // a crash-prone frame rate); upgrades require a much longer proven
+        // streak before spending more.
         if (forceQuality === null) {
-          if (fps < 45) lowFrameStreak++;
-          else lowFrameStreak = 0;
-          if (lowFrameStreak >= 3 && qualityRef.current !== 'low') {
+          if (fps < 45) {
+            lowFrameStreak++;
+            highFrameStreak = 0;
+          } else {
+            lowFrameStreak = 0;
+            if (fps >= 58) highFrameStreak++;
+          }
+          if (lowFrameStreak >= 2 && qualityRef.current !== 'low') {
             setQuality((q) => (q === 'high' ? 'medium' : 'low'));
             lowFrameStreak = 0;
+          } else if (highFrameStreak >= 10 && qualityRef.current !== 'high') {
+            setQuality((q) => (q === 'low' ? 'medium' : 'high'));
+            highFrameStreak = 0;
           }
         }
       }
@@ -110,18 +123,25 @@ export function RaphaelVisualizer({
       const completedAgeMs = completedAtRef.current ? now - completedAtRef.current : null;
       const completionPulseAge = completedAgeMs !== null && completedAgeMs < 1200 ? completedAgeMs / 1000 : null;
 
-      drawFrame({
-        ctx,
-        width: canvas.width,
-        height: canvas.height,
-        tSec,
-        state: stateRef.current,
-        audio: audioRef.current,
-        tunables: tunablesRef.current,
-        quality: qualityRef.current,
-        particles: particlesRef.current,
-        completionPulseAge
-      });
+      // A single bad frame (e.g. a transient NaN from layout mid-resize)
+      // must not kill the loop and leave the canvas permanently blank —
+      // skip the frame and keep going.
+      try {
+        drawFrame({
+          ctx,
+          width: canvas.width,
+          height: canvas.height,
+          tSec,
+          state: stateRef.current,
+          audio: audioRef.current,
+          tunables: tunablesRef.current,
+          quality: qualityRef.current,
+          particles: particlesRef.current,
+          completionPulseAge
+        });
+      } catch (err) {
+        console.error('[RaphaelVisualizer] frame draw failed, skipping frame', err);
+      }
 
       onStats?.({
         fps: Math.round(fps),

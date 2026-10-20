@@ -63,6 +63,15 @@ function createMainWindow(): void {
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     console.error(`[Load Error] ${errorCode}: ${errorDescription} (${validatedURL})`);
   });
+  // A blank white window (distinct from a JS error, which React would
+  // still render around) means the renderer process itself died — almost
+  // always a GPU-process crash on real hardware. Reload rather than
+  // leaving the user staring at a dead window.
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[Renderer Process Gone]', details);
+    activity.append(`Visualizer window crashed (${details.reason}) — reloading.`, 'error');
+    mainWindow?.reload();
+  });
 
   const devServerUrl = process.env.RAPHAEL_DEV_SERVER_URL;
   if (devServerUrl) {
