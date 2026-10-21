@@ -61,6 +61,13 @@ export async function closeApplication(name: string): Promise<LaunchResult> {
   }
   const key = name.trim().toLowerCase();
   const resolvedProcessName = CLOSE_ALIASES[key] ?? key.replace(/\s+/g, '');
+  // The name can originate from free-form / LLM text. `Get-Process -Name`
+  // and `Stop-Process -Name` interpret PowerShell wildcards (* ? [ ]), so a
+  // name like "*" would match — and kill — every process. Reject anything
+  // that isn't a plain process-name character BEFORE it reaches the script.
+  if (!/^[A-Za-z0-9._-]+$/.test(resolvedProcessName)) {
+    return { success: false, detail: `My Liege, "${name}" isn't a valid app name to close.` };
+  }
   const processName = sanitizeForPowerShellLiteral(resolvedProcessName);
 
   const script = `
