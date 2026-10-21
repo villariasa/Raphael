@@ -35,6 +35,18 @@ export function markSpeechEnd(): void {
   if (speechClock) speechClock.playing = false;
 }
 
+/**
+ * Text-only reveal (voice disabled): drive the subtitle progress on a wall
+ * clock over `durationMs` so the text still reveals progressively without any
+ * audio. Auto-ends when the duration elapses.
+ */
+export function markTextOnlyReveal(durationMs: number): void {
+  speechClock = { base: 'wall', start: performance.now() / 1000, duration: Math.max(0.3, durationMs / 1000), playing: true };
+  setTimeout(() => {
+    if (speechClock && speechClock.base === 'wall') speechClock.playing = false;
+  }, durationMs);
+}
+
 export interface SpeechProgress {
   /** 0..1 fraction of the current utterance that has played */
   progress: number;

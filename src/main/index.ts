@@ -282,6 +282,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC.getStats, async () => conversationStore.getStats());
 
+  ipcMain.handle(IPC.getUiSettings, async () => settingsStore.getUiSettings());
+
+  ipcMain.handle(IPC.setUiSettings, async (_evt, patch) => settingsStore.setUiSettings(patch));
+
   ipcMain.handle(IPC.getSttStatus, async () => sttManager.getStatus());
 
   ipcMain.handle(IPC.setupStt, async () => {

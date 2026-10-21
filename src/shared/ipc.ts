@@ -80,6 +80,22 @@ export type SpeakResult =
  */
 export type VoiceOption = 'en-US-female' | 'ja-JP-female';
 
+/**
+ * Response-engine UI settings (§20). Defaults deliver the full experience:
+ * voice on, animation full, system response on every reply.
+ */
+export interface UiSettings {
+  voiceEnabled: boolean;
+  animationMode: 'full' | 'reduced' | 'off';
+  systemResponseScope: 'always' | 'important';
+}
+
+export const DEFAULT_UI_SETTINGS: UiSettings = {
+  voiceEnabled: true,
+  animationMode: 'full',
+  systemResponseScope: 'always'
+};
+
 /** Lifetime usage statistics Raphael keeps locally (§22: never transmitted). */
 export interface ConversationStats {
   firstSeen: string;
@@ -147,6 +163,8 @@ export interface RaphaelApi {
   setupStt(): Promise<void>;
   setMicEnabled(enabled: boolean): Promise<void>;
   transcribe(wavBase64: string): Promise<TranscribeResult>;
+  getUiSettings(): Promise<UiSettings>;
+  setUiSettings(patch: Partial<UiSettings>): Promise<UiSettings>;
 
   onPermissionRequest(cb: (req: PermissionRequest) => void): () => void;
   onTaskStatus(cb: (update: TaskStatusUpdate) => void): () => void;
@@ -180,6 +198,8 @@ export const IPC = {
   setupStt: 'raphael:setupStt',
   setMicEnabled: 'raphael:setMicEnabled',
   transcribe: 'raphael:transcribe',
+  getUiSettings: 'raphael:getUiSettings',
+  setUiSettings: 'raphael:setUiSettings',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',

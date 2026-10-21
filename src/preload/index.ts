@@ -25,6 +25,8 @@ const IPC: typeof IpcType = {
   setupStt: 'raphael:setupStt',
   setMicEnabled: 'raphael:setMicEnabled',
   transcribe: 'raphael:transcribe',
+  getUiSettings: 'raphael:getUiSettings',
+  setUiSettings: 'raphael:setUiSettings',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',
@@ -62,6 +64,8 @@ const api: RaphaelApi = {
   setupStt: () => ipcRenderer.invoke(IPC.setupStt),
   setMicEnabled: (enabled: boolean) => ipcRenderer.invoke(IPC.setMicEnabled, enabled),
   transcribe: (wavBase64: string) => ipcRenderer.invoke(IPC.transcribe, wavBase64),
+  getUiSettings: () => ipcRenderer.invoke(IPC.getUiSettings),
+  setUiSettings: (patch) => ipcRenderer.invoke(IPC.setUiSettings, patch),
 
   onPermissionRequest: (cb: (req: PermissionRequest) => void) => {
     const listener = (_: unknown, req: PermissionRequest) => cb(req);

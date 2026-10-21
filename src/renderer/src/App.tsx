@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ActivityEntry, EnvironmentProfile, AiStatus, PermissionRequest, TaskStatusUpdate, PermissionDecision, VoiceOption, ConversationStats } from '../../shared/ipc';
-import { VOICE_OPTIONS } from '../../shared/ipc';
+import type { ActivityEntry, EnvironmentProfile, AiStatus, PermissionRequest, TaskStatusUpdate, PermissionDecision, VoiceOption, ConversationStats, UiSettings } from '../../shared/ipc';
+import { VOICE_OPTIONS, DEFAULT_UI_SETTINGS } from '../../shared/ipc';
 import type { RaphaelState } from './visualizer/types';
 import { StatusPill } from './components/StatusPill';
 import { CurrentTaskPanel } from './panels/CurrentTaskPanel';
@@ -10,10 +10,11 @@ import { VisualizerDebugStats } from './visualizer/RaphaelVisualizer';
 import { RaphaelVisualizerVideo as RaphaelVisualizer } from './visualizer/RaphaelVisualizerVideo';
 import { DebugPanel } from './visualizer/DebugPanel';
 import { FloatingVisualizer } from './visualizer/FloatingVisualizer';
-import { useAudioReactive, playSpeechWav, resumeAudioContext, stopSpeech, markSpeechStart, markSpeechEnd } from './visualizer/useAudioReactive';
+import { useAudioReactive } from './visualizer/useAudioReactive';
 import { RaphaelSubtitle } from './visualizer/RaphaelSubtitle';
 import { ResponseSystem } from './visualizer/ResponseSystem';
-import { classifyResponse, ResponseClass } from './visualizer/responseClass';
+import { useResponseOrchestrator } from './response/useResponseOrchestrator';
+import { buildSystemResponse } from './response/buildSystemResponse';
 import { useVoiceInput } from './voice/useVoiceInput';
 import { deriveRaphaelState } from './visualizer/deriveState';
 import { DEFAULT_TUNABLES, QualityTier, VisualizerTunables } from './visualizer/types';
@@ -50,16 +51,6 @@ function MainApp() {
   // --- Visualizer wiring -------------------------------------------------
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   if (!audioElRef.current && typeof window !== 'undefined') audioElRef.current = new Audio();
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [subtitleText, setSubtitleText] = useState<string | null>(null);
-  const subtitleNonceRef = useRef(0);
-  const [subtitleNonce, setSubtitleNonce] = useState(0);
-  // Response System (報告/回答/告) presentation overlay — never replaces the answer.
-  const responseTriggerRef = useRef(0);
-  const [responseTrigger, setResponseTrigger] = useState(0);
-  const [responseClass, setResponseClass] = useState<ResponseClass>('hokoku');
-  const [responseMode, setResponseMode] = useState<'quick' | 'full'>('full');
-  const submitStartRef = useRef(0);
   const [completedAt, setCompletedAt] = useState<number | null>(null);
   const [aiError, setAiError] = useState(false);
   const [visualizerMode, setVisualizerMode] = useState<'embedded' | 'large'>('embedded');
@@ -70,6 +61,18 @@ function MainApp() {
   const [forceQuality, setForceQuality] = useState<QualityTier | null>(null);
 
   const audioBands = useAudioReactive(audioElRef.current, tunables.audioSensitivity);
+
+  // UI settings (voice / animation / scope) — defaults deliver the full
+  // experience (§20). Shared with the response engine.
+  const [uiSettings, setUiSettings] = useState<UiSettings>(DEFAULT_UI_SETTINGS);
+  const uiSettingsRef = useRef(uiSettings);
+  uiSettingsRef.current = uiSettings;
+  const [showSettings, setShowSettings] = useState(false);
+
+  // RaphaelResponseOrchestrator (§14) — the one coordinator for every
+  // response's animation + voice + text. Owns speaking + subtitle state.
+  const orchestrator = useResponseOrchestrator(audioElRef.current);
+  const isSpeaking = orchestrator.isSpeaking;
 
   // --- Voice input (optional; typing stays primary) ---------------------
   const [micEnabled, setMicEnabled] = useState(false);
@@ -109,77 +112,32 @@ function MainApp() {
     [aiError, taskError, permissionRequest, running, paused, stepInfo, isSpeaking, voiceInput.listening, debugState]
   );
 
-  function startSubtitle(text: string) {
-    subtitleNonceRef.current += 1;
-    setSubtitleNonce(subtitleNonceRef.current);
-    setSubtitleText(text);
+  /**
+   * The single entry point for every Raphael reply (§1 pipeline, §21): build
+   * the structured SystemResponse, then hand it to the orchestrator which
+   * coordinates the animation + voice + text. No caller wires those three
+   * layers by hand anymore.
+   */
+  function dispatchResponse(message: string, signals: { isError: boolean; needsPermission: boolean; hadAction: boolean }) {
+    if (!message || !message.trim()) return;
+    const rect = logEndRef.current?.getBoundingClientRect();
+    const width = rect?.width || (typeof window !== 'undefined' ? window.innerWidth : 1280);
+    const height = rect?.height || (typeof window !== 'undefined' ? window.innerHeight : 720);
+    const s = uiSettingsRef.current;
+    const r = buildSystemResponse({
+      message,
+      signals,
+      width,
+      height,
+      voiceEnabled: s.voiceEnabled,
+      animationMode: s.animationMode,
+      scope: s.systemResponseScope
+    });
+    orchestrator.handle(r);
   }
-
-  /** Play the classification (報告/回答/告) system animation for a ready response. */
-  function triggerResponseSystem(signals: { isError: boolean; needsPermission: boolean; hadAction: boolean }) {
-    setResponseClass(classifyResponse(signals));
-    // #2 Smart animation: full sequence only when real processing/action
-    // happened; a quick flash for instant/trivial replies so it never sits
-    // in front of a snappy answer.
-    const elapsed = performance.now() - submitStartRef.current;
-    const heavy = signals.hadAction || signals.needsPermission || signals.isError || elapsed > 1200;
-    setResponseMode(heavy ? 'full' : 'quick');
-    responseTriggerRef.current += 1;
-    setResponseTrigger(responseTriggerRef.current);
-  }
-
-  async function speak(text: string) {
-    if (!text || !text.trim() || !window.raphael?.speak) return;
-    try {
-      await resumeAudioContext();
-      const result = await window.raphael.speak(text);
-      if (!result.ok) {
-        console.warn('[speak] TTS synthesis error:', result.reason);
-        return;
-      }
-
-      setIsSpeaking(true);
-      // Subtitle reveal is driven by the real playback clock set inside
-      // playSpeechWav / the <audio> element — not a fixed typing speed.
-      startSubtitle(text);
-      const played = await playSpeechWav(result.audioBase64, () => {
-        setIsSpeaking(false);
-      });
-
-      if (!played && audioElRef.current) {
-        const audioEl = audioElRef.current;
-        audioEl.src = `data:${result.mime};base64,${result.audioBase64}`;
-        audioEl.volume = 1.0;
-        audioEl.muted = false;
-        // Fallback <audio> path: feed the subtitle clock from element time.
-        audioEl.onloadedmetadata = () => {
-          if (isFinite(audioEl.duration) && audioEl.duration > 0) {
-            markSpeechStart(audioEl.duration, 'wall');
-          }
-        };
-        audioEl.onended = () => {
-          setIsSpeaking(false);
-          markSpeechEnd();
-        };
-        audioEl.onerror = () => {
-          setIsSpeaking(false);
-          markSpeechEnd();
-        };
-        await audioEl.play().catch(() => setIsSpeaking(false));
-      }
-    } catch (err) {
-      console.error('[speak] playback error:', err);
-      setIsSpeaking(false);
-      markSpeechEnd();
-    }
-  }
-
-  /** Immediately silence Raphael and stop the subtitle at the current point. */
-  function interruptSpeech() {
-    stopSpeech();
-    setIsSpeaking(false);
-    setSubtitleText(null);
-  }
+  // Latest dispatcher, callable from the once-registered IPC listeners.
+  const dispatchRef = useRef(dispatchResponse);
+  dispatchRef.current = dispatchResponse;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -210,10 +168,12 @@ function MainApp() {
       setSttAvailable(s.available);
       setSttStage(s.setupProgress.stage);
     }).catch(console.error);
+    window.raphael.getUiSettings?.().then(setUiSettings).catch(console.error);
 
     const offPermission = window.raphael.onPermissionRequest?.((req) => {
       setPermissionRequest(req);
-      triggerResponseSystem({ isError: false, needsPermission: true, hadAction: false });
+      // Permission request → 告 KOKU notice (animation + voice + text).
+      dispatchRef.current(req.explanation, { isError: false, needsPermission: true, hadAction: false });
     });
     const offActivity = window.raphael.onActivity?.((entry) => setActivity((prev) => [...prev, entry]));
     const offAiSetup = window.raphael.onAiSetupProgress?.((p: any) => {
@@ -230,11 +190,13 @@ function MainApp() {
         setRunning(false);
         setPaused(false);
         setTaskError(!!update.error);
-        triggerResponseSystem({ isError: !!update.error, needsPermission: false, hadAction: !!update.totalSteps });
-        if (!update.error) {
-          setCompletedAt(performance.now());
-          speak(update.status || summaryRef.current || 'Done.');
-        }
+        if (!update.error) setCompletedAt(performance.now());
+        // Every completion — success OR failure — is a full system response.
+        dispatchRef.current(update.status || summaryRef.current || 'Done, My Liege.', {
+          isError: !!update.error,
+          needsPermission: false,
+          hadAction: !!update.totalSteps
+        });
       }
     });
     const offFullscreen = window.raphael.onFullscreenChange?.(setIsFullscreen);
@@ -268,7 +230,8 @@ function MainApp() {
   async function runCommand(raw: string) {
     const text = raw.trim();
     if (!text) return;
-    submitStartRef.current = performance.now();
+    // §16: a new request interrupts any in-flight voice/animation first.
+    orchestrator.interrupt();
     setCommandText('');
     setStepInfo(null);
     setStatus('Thinking...');
@@ -282,9 +245,8 @@ function MainApp() {
       setRunning(false);
       setStatus(plan.summary);
       setCompletedAt(performance.now());
-      // Conversational reply (no action) → 報告 REPORT.
-      triggerResponseSystem({ isError: false, needsPermission: false, hadAction: false });
-      speak(plan.summary);
+      // Conversational reply (no action) → 報告 REPORT (animation + voice + text).
+      dispatchResponse(plan.summary, { isError: false, needsPermission: false, hadAction: false });
     }
   }
 
@@ -354,7 +316,7 @@ function MainApp() {
             completedAt={completedAt}
             onStats={setDebugStats}
           />
-          <ResponseSystem trigger={responseTrigger} responseClass={responseClass} mode={responseMode} />
+          <ResponseSystem trigger={orchestrator.responseTrigger} response={orchestrator.response} onRevealStart={orchestrator.onRevealStart} />
           <button
             onClick={() => window.raphael.toggleFullscreen()}
             className="absolute right-3 top-3 z-20 rounded-md border border-white/20 bg-black/40 px-2.5 py-1 text-xs text-white/80 hover:bg-black/70 hover:text-white"
@@ -363,7 +325,7 @@ function MainApp() {
             Exit fullscreen
           </button>
           <div className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center px-6">
-            <RaphaelSubtitle text={subtitleText} nonce={subtitleNonce} />
+            <RaphaelSubtitle text={orchestrator.subtitleText} nonce={orchestrator.subtitleNonce} />
           </div>
         </div>
         <form onSubmit={handleSubmit} className="mt-4 flex gap-2">
@@ -400,14 +362,15 @@ function MainApp() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
-              speak(
+              dispatchResponse(
                 voice === 'ja-JP-female'
                   ? 'こんにちは！ラファエルです。音声テスト成功です。いつでも命令をどうぞ。'
-                  : 'Raphael voice synthesis is active and online.'
+                  : 'Raphael voice synthesis is active and online.',
+                { isError: false, needsPermission: false, hadAction: false }
               );
             }}
             className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
-            title="Click to test Raphael's voice"
+            title="Click to test Raphael's voice + system response"
           >
             🔊 Test Voice
           </button>
@@ -487,6 +450,68 @@ function MainApp() {
                 <p className="mt-2 border-t border-raphael-border pt-2 text-[10px] text-raphael-textMuted">
                   Stored locally. Daily journal: raphael-data/journal/
                 </p>
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => setShowSettings((v) => !v)}
+              className="rounded-md border border-raphael-border px-2.5 py-1 text-xs text-raphael-textMuted hover:text-raphael-text"
+              title="Response engine settings"
+            >
+              ⚙
+            </button>
+            {showSettings && (
+              <div className="absolute right-0 top-full z-30 mt-1 w-60 rounded-lg border border-raphael-border bg-raphael-surface p-3 text-xs text-raphael-text shadow-xl">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="font-semibold tracking-wide">RESPONSE ENGINE</span>
+                  <button onClick={() => setShowSettings(false)} className="text-raphael-textMuted hover:text-raphael-text">✕</button>
+                </div>
+                {(() => {
+                  const update = async (patch: Partial<UiSettings>) => {
+                    const next = await window.raphael.setUiSettings?.(patch);
+                    if (next) setUiSettings(next);
+                  };
+                  return (
+                    <div className="space-y-2.5">
+                      <label className="flex items-center justify-between">
+                        <span className="text-raphael-textMuted">Voice</span>
+                        <input
+                          type="checkbox"
+                          checked={uiSettings.voiceEnabled}
+                          onChange={(e) => update({ voiceEnabled: e.target.checked })}
+                          className="accent-raphael-accent"
+                        />
+                      </label>
+                      <label className="flex items-center justify-between gap-2">
+                        <span className="text-raphael-textMuted">Animation</span>
+                        <select
+                          value={uiSettings.animationMode}
+                          onChange={(e) => update({ animationMode: e.target.value as UiSettings['animationMode'] })}
+                          className="rounded border border-raphael-border bg-raphael-surfaceAlt px-1.5 py-0.5 text-raphael-text"
+                        >
+                          <option value="full">Full</option>
+                          <option value="reduced">Reduced</option>
+                          <option value="off">Off</option>
+                        </select>
+                      </label>
+                      <label className="flex items-center justify-between gap-2">
+                        <span className="text-raphael-textMuted">System response</span>
+                        <select
+                          value={uiSettings.systemResponseScope}
+                          onChange={(e) => update({ systemResponseScope: e.target.value as UiSettings['systemResponseScope'] })}
+                          className="rounded border border-raphael-border bg-raphael-surfaceAlt px-1.5 py-0.5 text-raphael-text"
+                        >
+                          <option value="always">Always</option>
+                          <option value="important">Important only</option>
+                        </select>
+                      </label>
+                      <p className="border-t border-raphael-border pt-2 text-[10px] text-raphael-textMuted">
+                        Defaults give the full experience: voice on, animation full, every reply.
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -590,7 +615,7 @@ function MainApp() {
                 setPaused(false);
               }}
               onStop={async () => {
-                interruptSpeech();
+                orchestrator.interrupt();
                 if (!taskId) return;
                 await window.raphael.stopTask(taskId);
               }}
@@ -623,11 +648,11 @@ function MainApp() {
                 onClose={() => setShowDebug(false)}
               />
             )}
-            <ResponseSystem trigger={responseTrigger} responseClass={responseClass} mode={responseMode} />
+            <ResponseSystem trigger={orchestrator.responseTrigger} response={orchestrator.response} onRevealStart={orchestrator.onRevealStart} />
             <div className="pointer-events-none absolute inset-x-0 bottom-5 z-20 flex justify-center px-6">
-              <RaphaelSubtitle text={subtitleText} nonce={subtitleNonce} />
+              <RaphaelSubtitle text={orchestrator.subtitleText} nonce={orchestrator.subtitleNonce} />
             </div>
-            {visualizerMode === 'embedded' && !subtitleText && (
+            {visualizerMode === "embedded" && !orchestrator.subtitleText && (
               <div className="pointer-events-none absolute bottom-3 left-3 right-3 text-center text-xs text-raphael-textMuted/80">
                 Try: <span className="text-raphael-text">"Create a folder called Projects"</span> or{' '}
                 <span className="text-raphael-text">"What's my system?"</span>
