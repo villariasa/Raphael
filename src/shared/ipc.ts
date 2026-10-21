@@ -93,6 +93,30 @@ export interface ConversationStats {
   turnsByDay: Record<string, number>;
 }
 
+/**
+ * Speech-to-text (listening) status. Local-first via a SenseVoice sidecar;
+ * voice input is an OPTIONAL second input — typing is always primary and
+ * always works, regardless of STT state (§ voice-input architecture).
+ */
+export interface SttSetupProgress {
+  stage: 'idle' | 'checking' | 'installing_runtime' | 'downloading_model' | 'loading_model' | 'ready' | 'error';
+  message: string;
+  percent?: number;
+  error?: string;
+}
+
+export interface SttStatus {
+  available: boolean;       // runtime + model ready to transcribe
+  runtime: 'python' | 'none';
+  micEnabled: boolean;      // user's persisted MICROPHONE permission toggle
+  setupProgress: SttSetupProgress;
+  error?: string;
+}
+
+export type TranscribeResult =
+  | { ok: true; text: string; language?: string }
+  | { ok: false; reason: string };
+
 export const VOICE_OPTIONS: Array<{ id: VoiceOption; label: string }> = [
   { id: 'en-US-female', label: 'English (US) — Female' },
   { id: 'ja-JP-female', label: '日本語 (Japanese) — Female' }
@@ -119,12 +143,17 @@ export interface RaphaelApi {
   setVoice(voice: VoiceOption): Promise<void>;
   toggleFullscreen(): Promise<void>;
   getStats(): Promise<ConversationStats>;
+  getSttStatus(): Promise<SttStatus>;
+  setupStt(): Promise<void>;
+  setMicEnabled(enabled: boolean): Promise<void>;
+  transcribe(wavBase64: string): Promise<TranscribeResult>;
 
   onPermissionRequest(cb: (req: PermissionRequest) => void): () => void;
   onTaskStatus(cb: (update: TaskStatusUpdate) => void): () => void;
   onActivity(cb: (entry: ActivityEntry) => void): () => void;
   onAiSetupProgress(cb: (progress: AiSetupProgress) => void): () => void;
   onFullscreenChange(cb: (isFullscreen: boolean) => void): () => void;
+  onSttSetupProgress(cb: (progress: SttSetupProgress) => void): () => void;
 }
 
 export const IPC = {
@@ -147,9 +176,14 @@ export const IPC = {
   setVoice: 'raphael:setVoice',
   toggleFullscreen: 'raphael:toggleFullscreen',
   getStats: 'raphael:getStats',
+  getSttStatus: 'raphael:getSttStatus',
+  setupStt: 'raphael:setupStt',
+  setMicEnabled: 'raphael:setMicEnabled',
+  transcribe: 'raphael:transcribe',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',
   aiSetupEvent: 'raphael:aiSetupEvent',
-  fullscreenEvent: 'raphael:fullscreenEvent'
+  fullscreenEvent: 'raphael:fullscreenEvent',
+  sttSetupEvent: 'raphael:sttSetupEvent'
 } as const;

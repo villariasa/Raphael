@@ -1,0 +1,158 @@
+/* Raphael Response System — anime-inspired classification overlay.
+   Typography layer (DOM); the energy field is drawn on a sibling canvas. */
+
+.rsx-root {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.rsx-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Classification typography stack ------------------------------------- */
+.rsx-class {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55em;
+  text-align: center;
+  z-index: 2;
+}
+
+/* Diamond frame around the kanji */
+.rsx-diamond {
+  position: relative;
+  width: clamp(120px, 20vw, 190px);
+  height: clamp(120px, 20vw, 190px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rsx-diamond::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: rotate(45deg);
+  border: 1.5px solid var(--rsx-glyph);
+  /* chromatic aberration on the frame */
+  box-shadow:
+    1.5px 0 0 rgba(229, 102, 77, 0.55),
+    -1.5px 0 0 rgba(74, 199, 180, 0.55);
+  opacity: 0.9;
+}
+
+.rsx-kanji {
+  font-family: 'Yu Mincho', 'Hiragino Mincho ProN', 'MS Mincho', 'Noto Serif JP', serif;
+  font-size: clamp(44px, 7vw, 74px);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--rsx-glyph);
+  /* subtle chromatic split + glow */
+  text-shadow:
+    1.2px 0 1px rgba(229, 102, 77, 0.5),
+    -1.2px 0 1px rgba(74, 199, 180, 0.5),
+    0 0 18px color-mix(in srgb, var(--rsx-accent) 45%, transparent);
+  position: relative;
+}
+
+.rsx-romaji {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(12px, 1.5vw, 15px);
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  color: var(--rsx-glyph);
+  opacity: 0.92;
+}
+.rsx-english {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(9px, 1.1vw, 11px);
+  letter-spacing: 0.56em;
+  text-indent: 0.56em;
+  color: color-mix(in srgb, var(--rsx-glyph) 70%, transparent);
+}
+
+/* Vertical processing label (tategaki), reference-style ---------------- */
+.rsx-vertical {
+  position: absolute;
+  top: 50%;
+  right: 8%;
+  transform: translateY(-50%);
+  writing-mode: vertical-rl;
+  font-family: 'Yu Mincho', 'Hiragino Mincho ProN', 'MS Mincho', 'Noto Serif JP', serif;
+  font-size: clamp(13px, 1.7vw, 18px);
+  letter-spacing: 0.25em;
+  color: color-mix(in srgb, var(--rsx-glyph) 60%, transparent);
+  z-index: 2;
+}
+
+/* Light sweep across the kanji */
+.rsx-sweep {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.28) 50%, transparent 62%);
+  mix-blend-mode: screen;
+}
+
+/* ---- phase-driven animation states ---- */
+.rsx-class.enter .rsx-diamond { animation: rsx-diamond-in 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.rsx-class.enter .rsx-kanji { animation: rsx-kanji-in 0.6s cubic-bezier(0.18, 0.9, 0.2, 1) both; }
+.rsx-class.enter .rsx-romaji { animation: rsx-slide-up 0.5s 0.12s ease both; }
+.rsx-class.enter .rsx-english { animation: rsx-slide-up 0.5s 0.2s ease both; }
+.rsx-class.enter .rsx-sweep { animation: rsx-sweep-move 0.7s 0.15s ease-out both; }
+
+.rsx-class.glitch .rsx-kanji { animation: rsx-glitch 0.32s steps(2, end) 2; }
+
+.rsx-root.fading { animation: rsx-fade-out 0.5s ease forwards; }
+
+@keyframes rsx-diamond-in {
+  0% { opacity: 0; transform: scale(0.78) rotate(-6deg); filter: blur(2px); }
+  60% { opacity: 1; }
+  100% { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); }
+}
+@keyframes rsx-kanji-in {
+  0% { opacity: 0; transform: scale(1.4); letter-spacing: 0.3em; filter: blur(4px); }
+  50% { opacity: 1; }
+  100% { opacity: 1; transform: scale(1); letter-spacing: 0; filter: blur(0); }
+}
+@keyframes rsx-slide-up {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes rsx-sweep-move {
+  0% { transform: translateX(-120%); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translateX(120%); opacity: 0; }
+}
+@keyframes rsx-glitch {
+  0% { clip-path: inset(0 0 0 0); transform: translate(0); }
+  25% { clip-path: inset(18% 0 40% 0); transform: translate(-2px, 0); }
+  50% { clip-path: inset(55% 0 8% 0); transform: translate(2px, 0); }
+  75% { clip-path: inset(30% 0 30% 0); transform: translate(-1px, 0); }
+  100% { clip-path: inset(0 0 0 0); transform: translate(0); }
+}
+@keyframes rsx-fade-out {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rsx-class.enter .rsx-diamond,
+  .rsx-class.enter .rsx-kanji,
+  .rsx-class.enter .rsx-romaji,
+  .rsx-class.enter .rsx-english,
+  .rsx-class.enter .rsx-sweep,
+  .rsx-class.glitch .rsx-kanji { animation: none; }
+}

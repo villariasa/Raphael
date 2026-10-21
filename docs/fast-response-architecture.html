@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raphael — Fast Voice Response Architecture</title>
+</head>
+<body>
+<style>
+  :root {
+    --bg: #0b0e13;
+    --surface: #141924;
+    --surface-2: #1b2130;
+    --border: #272d3a;
+    --text: #e8eaef;
+    --muted: #93a0b4;
+    --faint: #5d6678;
+    --accent: #ffb545;      /* Raphael core gold — reserved for "what makes it fast" */
+    --flow: #5b86ff;        /* data flow */
+    --good: #3ecf8e;
+    --warn: #e8a33d;
+    --crit: #e5664d;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f3f4f7; --surface: #ffffff; --surface-2: #f7f8fb; --border: #dde1e9;
+      --text: #171a21; --muted: #5a6474; --faint: #959db0;
+      --accent: #c67a00; --flow: #3a63d8;
+      --good: #1f9d63; --warn: #b9791c; --crit: #c73f28;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b0e13; --surface: #141924; --surface-2: #1b2130; --border: #272d3a;
+    --text: #e8eaef; --muted: #93a0b4; --faint: #5d6678;
+    --accent: #ffb545; --flow: #5b86ff; --good: #3ecf8e; --warn: #e8a33d; --crit: #e5664d;
+  }
+  :root[data-theme="light"] {
+    --bg: #f3f4f7; --surface: #ffffff; --surface-2: #f7f8fb; --border: #dde1e9;
+    --text: #171a21; --muted: #5a6474; --faint: #959db0;
+    --accent: #c67a00; --flow: #3a63d8; --good: #1f9d63; --warn: #b9791c; --crit: #c73f28;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 48px 28px 80px; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 14px;
+  }
+  h1 {
+    font-family: var(--sans); font-weight: 680; font-size: clamp(28px, 4.4vw, 46px);
+    line-height: 1.08; letter-spacing: -0.02em; margin: 0 0 18px; text-wrap: balance;
+  }
+  h1 .warm { color: var(--accent); }
+  .thesis { font-size: clamp(16px, 2vw, 19px); color: var(--muted); max-width: 64ch; margin: 0; }
+  .thesis b { color: var(--text); font-weight: 600; }
+
+  h2 {
+    font-family: var(--mono); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--faint); margin: 0 0 20px; display: flex; align-items: center; gap: 12px;
+  }
+  h2::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+  section { margin-top: 56px; }
+
+  /* ---- pipeline ---- */
+  .pipe-scroll { overflow-x: auto; padding-bottom: 8px; }
+  .pipe {
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr);
+    gap: 0; align-items: stretch; min-width: 760px;
+  }
+  .stage {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 14px 13px; position: relative; display: flex; flex-direction: column; gap: 8px;
+  }
+  .stage + .stage { margin-left: 26px; }
+  .stage + .stage::before {
+    content: "→"; position: absolute; left: -22px; top: 50%; transform: translateY(-50%);
+    color: var(--flow); font-size: 16px; font-family: var(--mono);
+  }
+  .stage .where {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--faint);
+  }
+  .stage .name { font-weight: 620; font-size: 14px; line-height: 1.25; }
+  .stage .lat {
+    font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums;
+    margin-top: auto; padding-top: 6px;
+  }
+  .lat.z { color: var(--faint); }        /* ~0 */
+  .lat.g { color: var(--good); }          /* cheap */
+  .lat.w { color: var(--warn); }          /* notable */
+  .lat.a { color: var(--accent); font-weight: 600; } /* the warm-model win */
+  .stage.user { border-style: dashed; opacity: 0.85; }
+
+  /* ---- budget bar ---- */
+  .budget { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px 24px; }
+  .budget-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .budget-head .total { font-family: var(--mono); font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .budget-head .total .u { font-size: 15px; color: var(--muted); }
+  .budget-head .cap { font-size: 13px; color: var(--muted); }
+  .bar { display: flex; height: 36px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+  .seg { display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 11px; color: #0b0e13; font-weight: 600; min-width: 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px 20px; margin-top: 16px; }
+  .legend .item { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); }
+  .legend .dot { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+  .legend .item b { color: var(--text); font-weight: 600; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---- warm vs cold ---- */
+  .vs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 680px) { .vs { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; }
+  .card.cold { border-color: color-mix(in srgb, var(--crit) 40%, var(--border)); }
+  .card.warm { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  .card h3 { margin: 0 0 4px; font-size: 15px; font-weight: 640; display: flex; align-items: center; gap: 8px; }
+  .card.cold h3 .tag { color: var(--crit); }
+  .card.warm h3 .tag { color: var(--accent); }
+  .card .big { font-family: var(--mono); font-size: 30px; font-weight: 600; font-variant-numeric: tabular-nums; margin: 10px 0 6px; }
+  .card.cold .big { color: var(--crit); }
+  .card.warm .big { color: var(--accent); }
+  .card p { margin: 0; font-size: 13.5px; color: var(--muted); }
+
+  /* ---- levers ---- */
+  .levers { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  @media (max-width: 680px) { .levers { grid-template-columns: 1fr; } }
+  .lever { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; gap: 14px; }
+  .lever .rank { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--accent); flex: none; width: 24px; }
+  .lever .body h4 { margin: 0 0 4px; font-size: 14px; font-weight: 620; }
+  .lever .body p { margin: 0; font-size: 13px; color: var(--muted); }
+  .lever .body .impact { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); margin-top: 6px; }
+
+  .note { margin-top: 40px; font-size: 12.5px; color: var(--faint); font-family: var(--mono); border-top: 1px solid var(--border); padding-top: 16px; }
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Raphael · Voice Input · Latency Design</p>
+  <h1>End of speech to action in <span class="warm">~0.6&nbsp;seconds</span> — on a warm model.</h1>
+  <p class="thesis">
+    Speaking is only faster than typing if the pipeline is. The architecture spends its
+    latency budget deliberately: a <b>persistent SenseVoice sidecar</b> keeps the model warm,
+    tight <b>VAD endpointing</b> decides when you've stopped talking, and the common
+    <b>"open X" commands skip the LLM entirely</b>. Everything downstream is the pipeline a
+    typed command already uses.
+  </p>
+
+  <section>
+    <h2>The fast path — spoken "open chrome"</h2>
+    <div class="pipe-scroll">
+      <div class="pipe">
+        <div class="stage user">
+          <span class="where">You · mic</span>
+          <span class="name">You speak</span>
+          <span class="lat z">your time</span>
+        </div>
+        <div class="stage">
+          <span class="where">Renderer</span>
+          <span class="name">VAD endpoint</span>
+          <span class="lat w">~300 ms</span>
+        </div>
+        <div class="stage">
+          <span class="where">Renderer</span>
+          <span class="name">Encode 16k WAV</span>
+          <span class="lat g">~15 ms</span>
+        </div>
+        <div class="stage">
+          <span class="where">IPC</span>
+          <span class="name">→ Main → sidecar</span>
+          <span class="lat g">~10 ms</span>
+        </div>
+        <div class="stage">
+          <span class="where">Sidecar</span>
+          <span class="name">SenseVoice (warm)</span>
+          <span class="lat a">~250 ms</span>
+        </div>
+        <div class="stage">
+          <span class="where">Main</span>
+          <span class="name">Planner · regex</span>
+          <span class="lat z">~1 ms</span>
+        </div>
+        <div class="stage">
+          <span class="where">Main</span>
+          <span class="name">Permission (low)</span>
+          <span class="lat z">auto ~0</span>
+        </div>
+        <div class="stage">
+          <span class="where">Executor</span>
+          <span class="name">Launch + verify</span>
+          <span class="lat g">action starts</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Latency budget — end of speech → action begins</h2>
+    <div class="budget">
+      <div class="budget-head">
+        <div class="total">~576<span class="u"> ms</span></div>
+        <div class="cap">Common regex command, warm model. Launch/verify &amp; the spoken reply come after and vary by app.</div>
+      </div>
+      <div class="bar">
+        <div class="seg" style="flex: 300; background: var(--warn);">VAD 300</div>
+        <div class="seg" style="flex: 15; background: var(--good);"></div>
+        <div class="seg" style="flex: 10; background: var(--flow);"></div>
+        <div class="seg" style="flex: 250; background: var(--accent);">STT 250</div>
+        <div class="seg" style="flex: 1; background: var(--faint);"></div>
+      </div>
+      <div class="legend">
+        <span class="item"><span class="dot" style="background: var(--warn);"></span>VAD endpoint <b>~300 ms</b></span>
+        <span class="item"><span class="dot" style="background: var(--good);"></span>WAV encode <b>~15 ms</b></span>
+        <span class="item"><span class="dot" style="background: var(--flow);"></span>IPC <b>~10 ms</b></span>
+        <span class="item"><span class="dot" style="background: var(--accent);"></span>SenseVoice (warm) <b>~250 ms</b></span>
+        <span class="item"><span class="dot" style="background: var(--faint);"></span>Plan + gate <b>~1 ms</b></span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Why the sidecar stays warm</h2>
+    <div class="vs">
+      <div class="card cold">
+        <h3><span class="tag">✗ Cold</span> — reload model per utterance</h3>
+        <div class="big">+3–10 s</div>
+        <p>A one-shot Python call reloads SenseVoiceSmall from disk every single command. The transcription itself is fast; the load is what kills it. This is the trap to avoid.</p>
+      </div>
+      <div class="card warm">
+        <h3><span class="tag">✓ Warm</span> — persistent sidecar</h3>
+        <div class="big">~250 ms</div>
+        <p>Main spawns the sidecar once, the model loads once and stays resident. Every utterance after that is just inference. This single decision is the whole fast-response story.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The levers, by impact</h2>
+    <div class="levers">
+      <div class="lever">
+        <span class="rank">1</span>
+        <div class="body">
+          <h4>Warm model, persistent sidecar</h4>
+          <p>Load once, keep resident. Removes a 3–10&nbsp;s reload from every command.</p>
+          <div class="impact">Impact · decisive</div>
+        </div>
+      </div>
+      <div class="lever">
+        <span class="rank">2</span>
+        <div class="body">
+          <h4>Tight VAD endpointing</h4>
+          <p>Detect end-of-speech in ~300&nbsp;ms (Silero) instead of a long fixed silence timeout. Biggest <i>perceived</i> lag.</p>
+          <div class="impact">Impact · high</div>
+        </div>
+      </div>
+      <div class="lever">
+        <span class="rank">3</span>
+        <div class="body">
+          <h4>Regex fast-path skips the LLM</h4>
+          <p>"open chrome", "search google for…" plan in ~1&nbsp;ms. Only open-ended conversation hits Ollama.</p>
+          <div class="impact">Impact · high on common cmds</div>
+        </div>
+      </div>
+      <div class="lever">
+        <span class="rank">4</span>
+        <div class="body">
+          <h4>SenseVoiceSmall + 16 kHz mono</h4>
+          <p>Feed the model its native fast path. ~5× faster than Whisper-Small at the same job.</p>
+          <div class="impact">Impact · medium</div>
+        </div>
+      </div>
+      <div class="lever">
+        <span class="rank">5</span>
+        <div class="body">
+          <h4>GPU when present, CPU fallback</h4>
+          <p>Auto-detect CUDA; degrade to CPU without failing. Cuts STT further on capable machines.</p>
+          <div class="impact">Impact · hardware-dependent</div>
+        </div>
+      </div>
+      <div class="lever">
+        <span class="rank">6</span>
+        <div class="body">
+          <h4>Interim transcript (later)</h4>
+          <p>SenseVoice isn't streaming, but a short rolling window could show "heard so far…" text. Deferred.</p>
+          <div class="impact">Impact · perceived only</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <p class="note">
+    // estimates for a warm SenseVoiceSmall on mid CPU — validate on target hardware in Phase 1.<br>
+    // typing stays the primary input; this path is the optional voice front door into the same submitCommand pipeline.
+  </p>
+
+</div>
+
+</body>
+</html>

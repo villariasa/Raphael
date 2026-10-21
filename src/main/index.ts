@@ -15,6 +15,7 @@ import { SettingsStore } from './storage/settingsStore';
 import { ConversationStore } from './storage/conversationStore';
 import { CursorOverlay } from './ui/cursorOverlay';
 import { TtsManager } from './core/tts/ttsManager';
+import { SttManager } from './core/stt/sttManager';
 
 const DATA_DIR = path.join(app.getPath('userData'), 'raphael-data');
 const OLLAMA_MODEL = process.env.RAPHAEL_MODEL ?? 'llama3.2';
@@ -33,6 +34,7 @@ const executor = new Executor(permissionGate, activity);
 const taskManager = new TaskManager(executor, activity);
 const cursorOverlay = new CursorOverlay();
 const ttsManager = new TtsManager();
+const sttManager = new SttManager(path.join(__dirname, 'core/stt/sidecar/sense_voice_server.py'));
 
 let mainWindow: BrowserWindow | null = null;
 let floatingWindow: BrowserWindow | null = null;
@@ -97,6 +99,7 @@ function createMainWindow(): void {
     taskManager.stopAll();
     cursorOverlay.hide();
     floatingWindow?.close();
+    sttManager.dispose();
     mainWindow = null;
   });
 }
@@ -169,6 +172,18 @@ app.whenReady().then(() => {
   ollamaManager.setup().catch((err) => {
     activity.append(`Ollama setup background notice: ${err.message}`, 'warn');
   });
+
+  // Voice input (STT) is OPTIONAL and off until the user enables the mic.
+  // Restore the persisted mic preference; only warm the engine if enabled.
+  sttManager.setMicEnabled(settingsStore.getMicEnabled());
+  sttManager.onProgress((progress) => {
+    broadcast(IPC.sttSetupEvent, progress);
+    if (progress.stage === 'ready') activity.append('Voice input ready.', 'success');
+    else if (progress.stage === 'error') activity.append(`Voice input notice: ${progress.message}`, 'warn');
+  });
+  if (settingsStore.getMicEnabled()) {
+    sttManager.setup().catch((err) => activity.append(`Voice setup notice: ${err.message}`, 'warn'));
+  }
 
   ipcMain.handle(IPC.getEnvironmentProfile, async () => {
     const profile = await detectEnvironment();
@@ -267,6 +282,29 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC.getStats, async () => conversationStore.getStats());
 
+  ipcMain.handle(IPC.getSttStatus, async () => sttManager.getStatus());
+
+  ipcMain.handle(IPC.setupStt, async () => {
+    await sttManager.setup();
+  });
+
+  ipcMain.handle(IPC.setMicEnabled, async (_evt, enabled: boolean) => {
+    settingsStore.setMicEnabled(enabled);
+    sttManager.setMicEnabled(enabled);
+    activity.append(`Microphone ${enabled ? 'enabled' : 'disabled'}.`, 'info');
+    if (enabled) {
+      sttManager.setup().catch((err) => activity.append(`Voice setup notice: ${err.message}`, 'warn'));
+    }
+  });
+
+  ipcMain.handle(IPC.transcribe, async (_evt, wavBase64: string) => {
+    // §: respect the mic toggle as a real gate, not a cosmetic one.
+    if (!settingsStore.getMicEnabled()) {
+      return { ok: false as const, reason: 'Microphone is disabled.' };
+    }
+    return sttManager.transcribe(wavBase64);
+  });
+
   ipcMain.handle(IPC.getAlwaysAllowAll, async () => {
     return permissionStore.isAlwaysAllowAll();
   });
@@ -291,6 +329,7 @@ app.on('before-quit', () => {
   taskManager.stopAll();
   cursorOverlay.hide();
   floatingWindow?.close();
+  sttManager.dispose();
 });
 
 app.on('window-all-closed', () => {

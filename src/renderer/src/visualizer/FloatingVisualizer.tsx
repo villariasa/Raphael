@@ -64,6 +64,7 @@ export function FloatingVisualizer() {
     paused: false,
     hasSteps: !!taskStatus?.totalSteps,
     isSpeaking: false,
+    isListening: false,
     debugOverride: null
   });
 

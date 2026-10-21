@@ -12,6 +12,9 @@ import { DebugPanel } from './visualizer/DebugPanel';
 import { FloatingVisualizer } from './visualizer/FloatingVisualizer';
 import { useAudioReactive, playSpeechWav, resumeAudioContext, stopSpeech, markSpeechStart, markSpeechEnd } from './visualizer/useAudioReactive';
 import { RaphaelSubtitle } from './visualizer/RaphaelSubtitle';
+import { ResponseSystem } from './visualizer/ResponseSystem';
+import { classifyResponse, ResponseClass } from './visualizer/responseClass';
+import { useVoiceInput } from './voice/useVoiceInput';
 import { deriveRaphaelState } from './visualizer/deriveState';
 import { DEFAULT_TUNABLES, QualityTier, VisualizerTunables } from './visualizer/types';
 
@@ -51,6 +54,12 @@ function MainApp() {
   const [subtitleText, setSubtitleText] = useState<string | null>(null);
   const subtitleNonceRef = useRef(0);
   const [subtitleNonce, setSubtitleNonce] = useState(0);
+  // Response System (報告/回答/告) presentation overlay — never replaces the answer.
+  const responseTriggerRef = useRef(0);
+  const [responseTrigger, setResponseTrigger] = useState(0);
+  const [responseClass, setResponseClass] = useState<ResponseClass>('hokoku');
+  const [responseMode, setResponseMode] = useState<'quick' | 'full'>('full');
+  const submitStartRef = useRef(0);
   const [completedAt, setCompletedAt] = useState<number | null>(null);
   const [aiError, setAiError] = useState(false);
   const [visualizerMode, setVisualizerMode] = useState<'embedded' | 'large'>('embedded');
@@ -62,6 +71,28 @@ function MainApp() {
 
   const audioBands = useAudioReactive(audioElRef.current, tunables.audioSensitivity);
 
+  // --- Voice input (optional; typing stays primary) ---------------------
+  const [micEnabled, setMicEnabled] = useState(false);
+  const [sttAvailable, setSttAvailable] = useState(false);
+  const [sttStage, setSttStage] = useState<string>('idle');
+  const isSpeakingRef = useRef(false);
+  isSpeakingRef.current = isSpeaking;
+
+  const voiceInput = useVoiceInput({
+    onUtterance: async (wavBase64) => {
+      const result = await window.raphael.transcribe?.(wavBase64);
+      if (!result || !result.ok) {
+        if (result && !result.ok) setStatus(result.reason);
+        return;
+      }
+      setCommandText(result.text);
+      runCommand(result.text);
+    },
+    onError: (msg) => setStatus(`Mic: ${msg}`),
+    // Barge-in: ignore the mic while Raphael is speaking so she doesn't hear herself.
+    getBlocked: () => isSpeakingRef.current
+  });
+
   const raphaelState = useMemo(
     () =>
       deriveRaphaelState({
@@ -72,15 +103,29 @@ function MainApp() {
         paused,
         hasSteps: !!stepInfo,
         isSpeaking,
+        isListening: voiceInput.listening,
         debugOverride: debugState
       }),
-    [aiError, taskError, permissionRequest, running, paused, stepInfo, isSpeaking, debugState]
+    [aiError, taskError, permissionRequest, running, paused, stepInfo, isSpeaking, voiceInput.listening, debugState]
   );
 
   function startSubtitle(text: string) {
     subtitleNonceRef.current += 1;
     setSubtitleNonce(subtitleNonceRef.current);
     setSubtitleText(text);
+  }
+
+  /** Play the classification (報告/回答/告) system animation for a ready response. */
+  function triggerResponseSystem(signals: { isError: boolean; needsPermission: boolean; hadAction: boolean }) {
+    setResponseClass(classifyResponse(signals));
+    // #2 Smart animation: full sequence only when real processing/action
+    // happened; a quick flash for instant/trivial replies so it never sits
+    // in front of a snappy answer.
+    const elapsed = performance.now() - submitStartRef.current;
+    const heavy = signals.hadAction || signals.needsPermission || signals.isError || elapsed > 1200;
+    setResponseMode(heavy ? 'full' : 'quick');
+    responseTriggerRef.current += 1;
+    setResponseTrigger(responseTriggerRef.current);
   }
 
   async function speak(text: string) {
@@ -139,10 +184,16 @@ function MainApp() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'd') setShowDebug((v) => !v);
+      // Ctrl+Space: push-to-talk toggle (voice is optional; typing still primary).
+      if (e.ctrlKey && e.code === 'Space') {
+        e.preventDefault();
+        toggleMic();
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [micEnabled, voiceInput.listening]);
 
   useEffect(() => {
     if (!window.raphael) return;
@@ -154,8 +205,16 @@ function MainApp() {
     window.raphael.getActivity().then(setActivity).catch(console.error);
     window.raphael.getAlwaysAllowAll?.().then(setAllPermissions).catch(console.error);
     window.raphael.getVoice?.().then(setVoice).catch(console.error);
+    window.raphael.getSttStatus?.().then((s) => {
+      setMicEnabled(s.micEnabled);
+      setSttAvailable(s.available);
+      setSttStage(s.setupProgress.stage);
+    }).catch(console.error);
 
-    const offPermission = window.raphael.onPermissionRequest?.(setPermissionRequest);
+    const offPermission = window.raphael.onPermissionRequest?.((req) => {
+      setPermissionRequest(req);
+      triggerResponseSystem({ isError: false, needsPermission: true, hadAction: false });
+    });
     const offActivity = window.raphael.onActivity?.((entry) => setActivity((prev) => [...prev, entry]));
     const offAiSetup = window.raphael.onAiSetupProgress?.((p: any) => {
       setSetupProgress(p);
@@ -171,6 +230,7 @@ function MainApp() {
         setRunning(false);
         setPaused(false);
         setTaskError(!!update.error);
+        triggerResponseSystem({ isError: !!update.error, needsPermission: false, hadAction: !!update.totalSteps });
         if (!update.error) {
           setCompletedAt(performance.now());
           speak(update.status || summaryRef.current || 'Done.');
@@ -178,6 +238,10 @@ function MainApp() {
       }
     });
     const offFullscreen = window.raphael.onFullscreenChange?.(setIsFullscreen);
+    const offStt = window.raphael.onSttSetupProgress?.((p) => {
+      setSttStage(p.stage);
+      setSttAvailable(p.stage === 'ready');
+    });
 
     return () => {
       offPermission?.();
@@ -185,6 +249,7 @@ function MainApp() {
       offAiSetup?.();
       offStatus?.();
       offFullscreen?.();
+      offStt?.();
     };
   }, []);
 
@@ -199,10 +264,11 @@ function MainApp() {
     );
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const text = commandText.trim();
+  /** Submit a command (from typing OR voice — the single front door into the pipeline). */
+  async function runCommand(raw: string) {
+    const text = raw.trim();
     if (!text) return;
+    submitStartRef.current = performance.now();
     setCommandText('');
     setStepInfo(null);
     setStatus('Thinking...');
@@ -216,8 +282,54 @@ function MainApp() {
       setRunning(false);
       setStatus(plan.summary);
       setCompletedAt(performance.now());
+      // Conversational reply (no action) → 報告 REPORT.
+      triggerResponseSystem({ isError: false, needsPermission: false, hadAction: false });
       speak(plan.summary);
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    runCommand(commandText);
+  }
+
+  /** Enable the mic (persist + warm the engine) and start a listening session. */
+  async function toggleMic() {
+    if (!micEnabled) {
+      await window.raphael.setMicEnabled?.(true);
+      setMicEnabled(true);
+    }
+    voiceInput.toggle();
+  }
+
+  function micTitle(): string {
+    if (voiceInput.listening) return 'Listening — speak now (Ctrl+Space to stop)';
+    if (!micEnabled) return 'Enable voice input (Ctrl+Space)';
+    if (sttStage === 'error') return 'Voice unavailable — typing still works';
+    if (sttStage !== 'ready') return 'Voice engine is still setting up…';
+    return 'Speak to Raphael (Ctrl+Space)';
+  }
+
+  function renderMicButton() {
+    const busy = micEnabled && sttStage !== 'ready' && sttStage !== 'error' && !voiceInput.listening;
+    return (
+      <button
+        type="button"
+        onClick={toggleMic}
+        title={micTitle()}
+        className={`flex items-center justify-center rounded-md border px-3 py-3 text-sm transition-colors ${
+          voiceInput.listening
+            ? 'border-raphael-danger/60 bg-raphael-danger/15 text-raphael-danger animate-pulse'
+            : busy
+            ? 'border-raphael-border text-raphael-textMuted opacity-70'
+            : micEnabled && sttAvailable
+            ? 'border-raphael-ok/40 text-raphael-ok hover:bg-raphael-ok/10'
+            : 'border-raphael-border text-raphael-textMuted hover:text-raphael-text'
+        }`}
+      >
+        {voiceInput.listening ? '● REC' : '🎙'}
+      </button>
+    );
   }
 
   async function decide(decision: PermissionDecision) {
@@ -242,9 +354,10 @@ function MainApp() {
             completedAt={completedAt}
             onStats={setDebugStats}
           />
+          <ResponseSystem trigger={responseTrigger} responseClass={responseClass} mode={responseMode} />
           <button
             onClick={() => window.raphael.toggleFullscreen()}
-            className="absolute right-3 top-3 z-10 rounded-md border border-white/20 bg-black/40 px-2.5 py-1 text-xs text-white/80 hover:bg-black/70 hover:text-white"
+            className="absolute right-3 top-3 z-20 rounded-md border border-white/20 bg-black/40 px-2.5 py-1 text-xs text-white/80 hover:bg-black/70 hover:text-white"
             title="Exit fullscreen (F11)"
           >
             Exit fullscreen
@@ -254,6 +367,7 @@ function MainApp() {
           </div>
         </div>
         <form onSubmit={handleSubmit} className="mt-4 flex gap-2">
+          {renderMicButton()}
           <input
             value={commandText}
             onChange={(e) => setCommandText(e.target.value)}
@@ -509,7 +623,8 @@ function MainApp() {
                 onClose={() => setShowDebug(false)}
               />
             )}
-            <div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center px-6">
+            <ResponseSystem trigger={responseTrigger} responseClass={responseClass} mode={responseMode} />
+            <div className="pointer-events-none absolute inset-x-0 bottom-5 z-20 flex justify-center px-6">
               <RaphaelSubtitle text={subtitleText} nonce={subtitleNonce} />
             </div>
             {visualizerMode === 'embedded' && !subtitleText && (
@@ -520,6 +635,7 @@ function MainApp() {
             )}
           </div>
           <form onSubmit={handleSubmit} className="flex gap-2">
+            {renderMicButton()}
             <input
               value={commandText}
               onChange={(e) => setCommandText(e.target.value)}

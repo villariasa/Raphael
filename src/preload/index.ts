@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { RaphaelApi, PermissionRequest, TaskStatusUpdate, ActivityEntry, PermissionDecision, VoiceOption, IPC as IpcType } from '../shared/ipc';
+import type { RaphaelApi, PermissionRequest, TaskStatusUpdate, ActivityEntry, PermissionDecision, VoiceOption, SttSetupProgress, IPC as IpcType } from '../shared/ipc';
 
 const IPC: typeof IpcType = {
   getEnvironmentProfile: 'raphael:getEnvironmentProfile',
@@ -21,11 +21,16 @@ const IPC: typeof IpcType = {
   setVoice: 'raphael:setVoice',
   toggleFullscreen: 'raphael:toggleFullscreen',
   getStats: 'raphael:getStats',
+  getSttStatus: 'raphael:getSttStatus',
+  setupStt: 'raphael:setupStt',
+  setMicEnabled: 'raphael:setMicEnabled',
+  transcribe: 'raphael:transcribe',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',
   aiSetupEvent: 'raphael:aiSetupEvent',
-  fullscreenEvent: 'raphael:fullscreenEvent'
+  fullscreenEvent: 'raphael:fullscreenEvent',
+  sttSetupEvent: 'raphael:sttSetupEvent'
 };
 
 /**
@@ -53,6 +58,10 @@ const api: RaphaelApi = {
   setVoice: (voice: VoiceOption) => ipcRenderer.invoke(IPC.setVoice, voice),
   toggleFullscreen: () => ipcRenderer.invoke(IPC.toggleFullscreen),
   getStats: () => ipcRenderer.invoke(IPC.getStats),
+  getSttStatus: () => ipcRenderer.invoke(IPC.getSttStatus),
+  setupStt: () => ipcRenderer.invoke(IPC.setupStt),
+  setMicEnabled: (enabled: boolean) => ipcRenderer.invoke(IPC.setMicEnabled, enabled),
+  transcribe: (wavBase64: string) => ipcRenderer.invoke(IPC.transcribe, wavBase64),
 
   onPermissionRequest: (cb: (req: PermissionRequest) => void) => {
     const listener = (_: unknown, req: PermissionRequest) => cb(req);
@@ -78,6 +87,11 @@ const api: RaphaelApi = {
     const listener = (_: unknown, isFullscreen: boolean) => cb(isFullscreen);
     ipcRenderer.on(IPC.fullscreenEvent, listener);
     return () => ipcRenderer.removeListener(IPC.fullscreenEvent, listener);
+  },
+  onSttSetupProgress: (cb: (progress: SttSetupProgress) => void) => {
+    const listener = (_: unknown, progress: SttSetupProgress) => cb(progress);
+    ipcRenderer.on(IPC.sttSetupEvent, listener);
+    return () => ipcRenderer.removeListener(IPC.sttSetupEvent, listener);
   }
 };
 
