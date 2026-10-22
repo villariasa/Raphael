@@ -110,22 +110,23 @@ export function useResponseOrchestrator(): Orchestrator {
     rafRef.current = requestAnimationFrame(checkFrame);
   }
 
-  /** Single wall-clock reveal of the English message (no audio). Used when
+  /** Single wall-clock reveal of the message (no audio). Used when
    *  voice is off or synthesis failed — one animation, never two. */
-  function startTextOnlyReveal(r: SystemResponse) {
+  function startTextOnlyReveal(r: SystemResponse, textOverride?: string) {
     if (currentIdRef.current !== r.responseId) return;
-    const duration = estimateReadMs(r.spokenScript) / 1000;
+    const displayText = textOverride || r.message;
+    const duration = estimateReadMs(textOverride || r.spokenScript) / 1000;
     const textTimeline = VoiceTimelineProvider.buildTimeline({
       responseId: r.responseId,
       responseType: r.responseType,
       label: r.systemLabel,
-      message: r.message,
-      spokenScript: r.spokenScript,
+      message: displayText,
+      spokenScript: textOverride || r.spokenScript,
       audioDuration: duration,
       accent: r.accent,
       accent2: r.accent2
     });
-    textTimeline.transcriptText = r.message;
+    textTimeline.transcriptText = displayText;
 
     setIsPreparingVoice(false);
     setTimeline(textTimeline);
@@ -166,7 +167,7 @@ export function useResponseOrchestrator(): Orchestrator {
         if (currentIdRef.current !== r.responseId) return;
         if (!audioBuffer) {
           setTtsNotice('VOICE SYSTEM UNAVAILABLE');
-          startTextOnlyReveal(r);
+          startTextOnlyReveal(r, result.japaneseText);
           return;
         }
 

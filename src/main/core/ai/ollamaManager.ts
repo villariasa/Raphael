@@ -298,7 +298,15 @@ export class OllamaManager {
     this.setupPromise = (async () => {
       let reachable = await this.ollama.isReachable();
       if (!reachable) {
-        reachable = await this.startOllamaProcess();
+        if (process.env.RAPHAEL_AUTOSTART_OLLAMA === 'true') {
+          reachable = await this.startOllamaProcess();
+        } else {
+          this.setProgress({
+            stage: 'idle',
+            message: 'Ollama is offline (standby). Use free API keys in .env or run "ollama serve".'
+          });
+          return false;
+        }
       }
 
       if (!reachable) {

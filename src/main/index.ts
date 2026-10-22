@@ -28,6 +28,21 @@ import { loadDotEnv } from './core/env/loadDotEnv';
 // run before any other local import evaluates process.env at module scope.
 loadDotEnv([app.getAppPath(), path.dirname(app.getPath('exe'))]);
 
+// Guard against multiple instances attempting to simultaneously write/move
+// the Chromium GPU disk cache on Windows (fixes "Unable to move the cache: Access is denied").
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+  process.exit(0);
+}
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
 const DATA_DIR = path.join(app.getPath('userData'), 'raphael-data');
 const OLLAMA_MODEL = process.env.RAPHAEL_MODEL ?? 'llama3.2';
 
@@ -194,9 +209,22 @@ app.whenReady().then(() => {
     }
   });
 
-  // Automatically ensure Ollama is running and target model is ready
-  ollamaManager.setup().catch((err) => {
-    activity.append(`Ollama setup background notice: ${err.message}`, 'warn');
+  // Check AI runtime: if free API keys are configured in .env, use high-speed cloud AI.
+  // Otherwise check if local Ollama is reachable without forcefully auto-starting background services.
+  freeApi.isReachable().then((hasFree) => {
+    if (hasFree) {
+      const activeProvider = freeApi.getLastUsedProviderName() || 'Cloud AI';
+      broadcast(IPC.aiSetupEvent, {
+        stage: 'ready',
+        model: activeProvider,
+        message: `${activeProvider} connected.`
+      });
+      activity.append(`Free Cloud LLM active: ${activeProvider}`, 'success');
+    } else {
+      ollamaManager.setup().catch((err) => {
+        activity.append(`Ollama check: ${err.message}`, 'warn');
+      });
+    }
   });
 
   // Voice input (STT) is OPTIONAL and off until the user enables the mic.

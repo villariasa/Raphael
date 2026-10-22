@@ -137,7 +137,7 @@ export class TtsManager {
     const tmpFile = path.join(os.tmpdir(), `raphael-tts-${crypto.randomUUID()}.wav`);
 
     // When voice is ja-JP-female or contains Japanese characters, speak in Japanese
-    let isJapanese = voice === 'ja-JP-female' || /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(clean);
+    const isJapanese = voice === 'ja-JP-female' || /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(clean);
     let speechText = clean;
     let japaneseText: string | undefined;
 
@@ -156,16 +156,8 @@ export class TtsManager {
       }
 
       const localizedBody = await localizeToJapaneseLady(body || clean, this.ai);
-      if (localizedBody) {
-        speechText = prefix ? `${prefix}${localizedBody}` : localizedBody;
-        japaneseText = speechText;
-      } else {
-        // No faithful translation available — degrade honestly: speak the
-        // real English answer with the English voice instead of a canned
-        // Japanese line that doesn't match the content.
-        isJapanese = false;
-        speechText = clean;
-      }
+      speechText = prefix ? `${prefix}${localizedBody}` : localizedBody;
+      japaneseText = speechText;
     }
 
     const neuralVoice = isJapanese ? 'ja-JP-NanamiNeural' : 'en-US-JennyNeural';

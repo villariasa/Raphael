@@ -12,7 +12,12 @@ export class FreeApiProvider implements AiProvider {
   private lastUsedProvider: string | null = null;
 
   private configuredProviders(): FreeApiProviderConfig[] {
-    return FREE_API_PROVIDERS.filter((p) => !!process.env[p.apiKeyEnv]);
+    const list = FREE_API_PROVIDERS.filter((p) => !!process.env[p.apiKeyEnv]);
+    const preferred = (process.env.RAPHAEL_PRIMARY_PROVIDER ?? '').toLowerCase();
+    if (preferred) {
+      list.sort((a, b) => (a.id === preferred ? -1 : b.id === preferred ? 1 : 0));
+    }
+    return list;
   }
 
   getLastUsedProviderName(): string | null {

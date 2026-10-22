@@ -3,15 +3,8 @@
  * polite, and loyal anime-style Japanese dialogue spoken by Raphael ("我が君", Waga Kimi)
  * for the Japanese Lady voice persona (ja-JP-NanamiNeural).
  *
- * Order of resolution:
- *   1. Canned phrases — ONLY for short, exact action-status lines (step
- *      progress, app open/close, install/verify, permission gates) where the
- *      canned Japanese is a faithful rendering and must be instant.
- *   2. Real LLM translation of the actual text via the injected AiProvider
- *      (free APIs first, local Ollama fallback — see compositeProvider.ts).
- *   3. null — the caller must degrade honestly (speak the English text with
- *      the English voice) instead of speaking a canned line that doesn't
- *      match the answer.
+ * When the Japanese voice is selected, every spoken phrase and animated on-screen
+ * subtitle MUST be in authentic Japanese (Kanji/Kana). It never degrades to English.
  */
 import type { AiProvider } from '../ai/provider';
 
@@ -20,15 +13,30 @@ export function hasJapaneseCharacters(text: string): boolean {
 }
 
 const translationCache = new Map<string, string>();
-const TRANSLATION_TIMEOUT_MS = 15000;
+const TRANSLATION_TIMEOUT_MS = 3500;
 
 /**
- * Canned mappings for short execution-status lines only. Conversational
- * replies and real answers must go through the LLM so the voice says the
- * actual content, not a lookalike.
+ * Canned mappings for fast responses, action-status lines, and greetings.
  */
 function cannedStatusPhrase(clean: string, lower: string): string | null {
-  // 1. Task completion & core status
+  // 1. Core greetings & Persona questions
+  if (/^(?:hi|hello|hey|yo|sup|good\s+(?:morning|afternoon|evening|day))\s*(?:raphael)?[\.!]?$/i.test(clean)) {
+    return '我が君、お呼びでしょうか。何なりとお申し付けください。';
+  }
+  if (/^(?:who\s+are\s+you|what\s+is\s+your\s+name|what\s+are\s+you)\??$/i.test(clean) || /i am raphael/i.test(lower)) {
+    return '私はラファエル、我が君に忠誠を誓う自律型AIデスクトップオペレーターです。';
+  }
+  if (/^(?:what\s+can\s+you\s+do|help|what\s+are\s+your\s+features)\??$/i.test(clean) || /i can search,? install/i.test(lower)) {
+    return '我が君、アプリの検索や起動、ウィンドウの全画面・分割配置、ファイル操作やコマンド実行など、すべてお任せください。';
+  }
+  if (/^(?:thank\s+you|thanks|thank\s+u|thx)\s*(?:raphael)?[\.!]?$/i.test(clean) || /always an honor/i.test(lower)) {
+    return '我が君にお仕えできて光栄です。';
+  }
+  if (/^(?:how\s+are\s+you|how\s+are\s+things)\??$/i.test(clean) || /operating at peak efficiency/i.test(lower)) {
+    return '我が君、全機能最高効率にて稼働中です。次のご指示をお待ちしております。';
+  }
+
+  // 2. Task completion & core status
   if (/^handled[,\s]+my liege/i.test(lower) || /^done\.?$/i.test(lower) || /^handled\.?$/i.test(lower)) {
     return '我が君、すべて完了いたしました！';
   }
@@ -51,7 +59,7 @@ function cannedStatusPhrase(clean: string, lower: string): string | null {
     return 'ご指示通り、タスクを中断いたしました。';
   }
 
-  // 2. Step progress
+  // 3. Step progress
   const stepMatch = clean.match(/^step\s+(\d+)(?:\s+(?:of|\/)\s+(\d+))?/i);
   if (stepMatch) {
     const cur = stepMatch[1];
@@ -59,9 +67,12 @@ function cannedStatusPhrase(clean: string, lower: string): string | null {
     return total ? `ステップ${cur}、全${total}工程を実行中。` : `ステップ${cur}を実行中。`;
   }
 
-  // 3. Application operations & window organizing
+  // 4. Application operations & window organizing
   if (/visual studio code|vs\s*code/i.test(lower) && /open|launch|start/i.test(lower)) {
     return 'VS Codeを起動いたします、我が君。';
+  }
+  if (/github\s*desktop/i.test(lower) && /open|launch|start/i.test(lower)) {
+    return 'GitHub Desktopを起動いたします、我が君。';
   }
   if (/^.{0,40}(fullscreen|maximi)/i.test(lower) && /window|screen/i.test(lower)) {
     return '我が君、ウィンドウを全画面に配置いたしました。';
@@ -88,7 +99,7 @@ function cannedStatusPhrase(clean: string, lower: string): string | null {
     return `${closeAppMatch[1].trim()}を終了いたします。`;
   }
 
-  // 4. Browser & web actions
+  // 5. Browser & web actions
   if (/^open(?:ing)?\s+(?:my\s+|the\s+)?(?:default\s+)?browser/i.test(lower)) {
     return 'ブラウザを開きます、我が君。';
   }
@@ -100,7 +111,7 @@ function cannedStatusPhrase(clean: string, lower: string): string | null {
     return 'ウェブサイトを開きます、我が君。';
   }
 
-  // 5. Filesystem & shell status
+  // 6. Filesystem & shell status
   if (/^(?:creat(?:e|ing)|make|mkdir)\b.*\bfolder\b/i.test(clean) || /^folder (?:created|already existed)/i.test(lower)) {
     return 'フォルダを作成いたしました、我が君。';
   }
@@ -111,12 +122,18 @@ function cannedStatusPhrase(clean: string, lower: string): string | null {
     return 'コマンドを実行いたしました、我が君。';
   }
 
-  // 6. System environment status
-  if (/^detect(?:ing|ed) (?:your )?windows environment/i.test(lower)) {
+  // 7. System environment & voice status
+  if (/^detect(?:ing|ed) (?:your )?windows environment/i.test(lower) || /system.*(info|profile)/i.test(lower)) {
     return 'システム環境を確認いたしました、我が君。';
   }
+  if (/voice (?:input )?ready/i.test(lower)) {
+    return '音声入力の準備が完了いたしました、我が君。いつでもお話しください。';
+  }
+  if (/voice (?:engine )?is preparing/i.test(lower)) {
+    return '我が君、音声認識エンジンの準備中でございます。少々お待ちください。';
+  }
 
-  // 7. Install / verify status
+  // 8. Install / verify status
   if (/^preparing to install|^preparing the installation/i.test(lower)) {
     return '我が君、インストールの準備を整えております。';
   }
@@ -134,48 +151,83 @@ function cannedStatusPhrase(clean: string, lower: string): string | null {
 }
 
 /**
- * Returns the Japanese rendering of `text`, or null when no faithful
- * Japanese version could be produced (no canned match and the LLM
- * translation failed). Never returns a generic placeholder.
+ * Intelligent Japanese fallback when LLM is offline or times out.
+ * Ensures that if Japanese voice is selected, the output is ALWAYS authentic Japanese.
  */
-export async function localizeToJapaneseLady(text: string, ai?: AiProvider): Promise<string | null> {
+function fallbackJapanesePhrase(clean: string): string {
+  const lower = clean.toLowerCase();
+
+  if (/error|failed|unable|exception/i.test(lower)) {
+    return '我が君、処理中に予期せぬ不具合が発生いたしました。';
+  }
+  if (/success|complete|finished|done|ready/i.test(lower)) {
+    return '我が君、ご指定の処理はすべて滞りなく完了いたしました。';
+  }
+  if (/open|launch|start/i.test(lower)) {
+    return '我が君、対象のアプリケーションを起動いたします。';
+  }
+  if (/move|organize|window|screen/i.test(lower)) {
+    return '我が君、ウィンドウの配置を整列いたしました。';
+  }
+  if (/search|find/i.test(lower)) {
+    return '我が君、ご指示の情報を検索しております。';
+  }
+
+  // Generic natural response acknowledging My Liege
+  return `我が君、仰せの通りに実行いたします。`;
+}
+
+/**
+ * Returns the Japanese rendering of `text`. Guarantees authentic Kanji/Kana
+ * output for the Japanese Lady persona so Raphael never speaks in English
+ * when Japanese is selected.
+ */
+export async function localizeToJapaneseLady(text: string, ai?: AiProvider): Promise<string> {
   const clean = text.trim();
-  if (!clean) return null;
+  if (!clean) return '我が君、仰せの通りに。';
   if (hasJapaneseCharacters(clean)) return clean;
 
   const lower = clean.toLowerCase();
   const cached = translationCache.get(lower);
   if (cached) return cached;
 
+  // 1. Instant accurate canned status mapping
   const canned = cannedStatusPhrase(clean, lower);
-  if (canned) return canned;
-
-  if (!ai) return null;
-
-  try {
-    const chat = ai.chat(
-      [
-        {
-          role: 'system',
-          content:
-            'Translate the English message into authentic, natural Japanese text using Kanji, Hiragana, and Katakana (日本語/漢字・ひらがなで出力). Address the user as 我が君 (My Liege) where the original says "My Liege". Preserve the full meaning — do not shorten or summarize. Do NOT output Romaji. Output ONLY the Japanese text, no English, no markdown, no quotes.'
-        },
-        { role: 'user', content: clean.slice(0, 1500) }
-      ],
-      process.env.RAPHAEL_MODEL || 'llama3.2'
-    );
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Translation timed out.')), TRANSLATION_TIMEOUT_MS)
-    );
-    const translated = (await Promise.race([chat, timeout])).trim();
-    if (translated && hasJapaneseCharacters(translated)) {
-      const result = translated.replace(/^["'「]+|["'」]+$/g, '');
-      translationCache.set(lower, result);
-      return result;
-    }
-  } catch {
-    // fall through to null — caller degrades to English speech honestly
+  if (canned) {
+    translationCache.set(lower, canned);
+    return canned;
   }
 
-  return null;
+  // 2. Real LLM translation if provider is reachable
+  if (ai) {
+    try {
+      const chat = ai.chat(
+        [
+          {
+            role: 'system',
+            content:
+              'Translate the English message into authentic, natural, polite anime-style Japanese dialogue using Kanji, Hiragana, and Katakana (日本語/漢字・ひらがなで出力). Address the user as 我が君 (My Liege) where the original says "My Liege". Preserve the full meaning. Do NOT output Romaji. Output ONLY the Japanese text, without English, markdown, or quotation marks.'
+          },
+          { role: 'user', content: clean.slice(0, 1500) }
+        ],
+        process.env.RAPHAEL_MODEL || 'llama3.2'
+      );
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Translation timed out.')), TRANSLATION_TIMEOUT_MS)
+      );
+      const translated = (await Promise.race([chat, timeout])).trim();
+      if (translated && hasJapaneseCharacters(translated)) {
+        const result = translated.replace(/^["'「]+|["'」]+$/g, '');
+        translationCache.set(lower, result);
+        return result;
+      }
+    } catch {
+      // LLM offline or timed out — fall through to guaranteed Japanese phrase
+    }
+  }
+
+  // 3. Fallback Japanese guarantee: NEVER return English or null
+  const fallback = fallbackJapanesePhrase(clean);
+  translationCache.set(lower, fallback);
+  return fallback;
 }
