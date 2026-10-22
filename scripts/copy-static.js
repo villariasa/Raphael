@@ -11,3 +11,9 @@ const sttSrc = path.join(__dirname, '..', 'src', 'main', 'core', 'stt', 'sidecar
 const sttDestDir = path.join(__dirname, '..', 'dist', 'main', 'core', 'stt', 'sidecar');
 fs.mkdirSync(sttDestDir, { recursive: true });
 fs.copyFileSync(sttSrc, path.join(sttDestDir, 'sense_voice_server.py'));
+
+// Desktop perception sidecar (screen-use Python).
+const dtSrc = path.join(__dirname, '..', 'src', 'main', 'core', 'desktop', 'perception', 'screen_use_server.py');
+const dtDestDir = path.join(__dirname, '..', 'dist', 'main', 'core', 'desktop', 'perception');
+fs.mkdirSync(dtDestDir, { recursive: true });
+fs.copyFileSync(dtSrc, path.join(dtDestDir, 'screen_use_server.py'));

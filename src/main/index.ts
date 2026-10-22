@@ -16,6 +16,7 @@ import { ConversationStore } from './storage/conversationStore';
 import { CursorOverlay } from './ui/cursorOverlay';
 import { TtsManager } from './core/tts/ttsManager';
 import { SttManager } from './core/stt/sttManager';
+import { DesktopEngine } from './core/desktop/desktopEngine';
 
 const DATA_DIR = path.join(app.getPath('userData'), 'raphael-data');
 const OLLAMA_MODEL = process.env.RAPHAEL_MODEL ?? 'llama3.2';
@@ -30,9 +31,20 @@ const permissionGate = new PermissionGate(permissionStore);
 const ai = new OllamaProvider();
 const ollamaManager = new OllamaManager(ai, OLLAMA_MODEL);
 const planner = new Planner(ai, OLLAMA_MODEL, permissionStore);
-const executor = new Executor(permissionGate, activity);
-const taskManager = new TaskManager(executor, activity);
+const desktopEngine = new DesktopEngine(__dirname, (progress) => {
+  broadcast(IPC.desktopStatusEvent, desktopEngine.getStatus());
+  if (progress.stage === 'ready') activity.append('Desktop perception ready.', 'success');
+  else if (progress.stage === 'error') activity.append(`Desktop perception: ${progress.message}`, 'warn');
+});
 const cursorOverlay = new CursorOverlay();
+const executor = new Executor(
+  permissionGate,
+  activity,
+  desktopEngine,
+  cursorOverlay,
+  () => settingsStore.getUiSettings().desktopCapabilities
+);
+const taskManager = new TaskManager(executor, activity);
 const ttsManager = new TtsManager();
 const sttManager = new SttManager(path.join(__dirname, 'core/stt/sidecar/sense_voice_server.py'));
 
@@ -100,6 +112,7 @@ function createMainWindow(): void {
     cursorOverlay.hide();
     floatingWindow?.close();
     sttManager.dispose();
+    desktopEngine.dispose();
     mainWindow = null;
   });
 }
@@ -294,6 +307,12 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC.setUiSettings, async (_evt, patch) => settingsStore.setUiSettings(patch));
 
+  ipcMain.handle(IPC.getDesktopStatus, async () => desktopEngine.getStatus());
+
+  ipcMain.handle(IPC.setupDesktopPerception, async () => {
+    desktopEngine.setupPerception().catch((err) => activity.append(`Desktop perception notice: ${err.message}`, 'warn'));
+  });
+
   ipcMain.handle(IPC.getSttStatus, async () => sttManager.getStatus());
 
   ipcMain.handle(IPC.setupStt, async () => {
@@ -342,6 +361,7 @@ app.on('before-quit', () => {
   cursorOverlay.hide();
   floatingWindow?.close();
   sttManager.dispose();
+  desktopEngine.dispose();
 });
 
 app.on('window-all-closed', () => {

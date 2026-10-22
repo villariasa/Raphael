@@ -97,16 +97,31 @@ export type VoiceOption = 'en-US-female' | 'ja-JP-female';
  * Response-engine UI settings (§20). Defaults deliver the full experience:
  * voice on, animation full, system response on every reply.
  */
+/** Desktop Engine capability toggles (§13) — each real action checks these. */
+export interface DesktopCapabilities {
+  readScreen: boolean;
+  controlMouse: boolean;
+  controlKeyboard: boolean;
+  windowControl: boolean;
+}
+
 export interface UiSettings {
   voiceEnabled: boolean;
   animationMode: 'full' | 'reduced' | 'off';
   systemResponseScope: 'always' | 'important';
+  desktopCapabilities: DesktopCapabilities;
 }
 
 export const DEFAULT_UI_SETTINGS: UiSettings = {
   voiceEnabled: true,
   animationMode: 'full',
-  systemResponseScope: 'always'
+  systemResponseScope: 'always',
+  desktopCapabilities: {
+    readScreen: true,
+    controlMouse: true,
+    controlKeyboard: true,
+    windowControl: true
+  }
 };
 
 /** Lifetime usage statistics Raphael keeps locally (§22: never transmitted). */
@@ -146,6 +161,30 @@ export type TranscribeResult =
   | { ok: true; text: string; language?: string }
   | { ok: false; reason: string };
 
+/** Desktop Engine status (window control is Win32; perception is the optional sidecar). */
+export interface DesktopEngineStatus {
+  platform: string;
+  windowManager: boolean;
+  perception: {
+    available: boolean;
+    runtime: 'python' | 'none';
+    stage: 'idle' | 'checking' | 'installing' | 'starting' | 'ready' | 'error';
+    message: string;
+  };
+}
+
+/** Visible Raphael cursor state (§3) — drives the overlay marker. */
+export type CursorState =
+  | 'idle'
+  | 'thinking'
+  | 'moving'
+  | 'targeting'
+  | 'clicking'
+  | 'dragging'
+  | 'executing'
+  | 'success'
+  | 'error';
+
 export const VOICE_OPTIONS: Array<{ id: VoiceOption; label: string }> = [
   { id: 'en-US-female', label: 'English (US) — Female' },
   { id: 'ja-JP-female', label: '日本語 (Japanese) — Female' }
@@ -172,6 +211,8 @@ export interface RaphaelApi {
   setVoice(voice: VoiceOption): Promise<void>;
   toggleFullscreen(): Promise<void>;
   getStats(): Promise<ConversationStats>;
+  getDesktopStatus(): Promise<DesktopEngineStatus>;
+  setupDesktopPerception(): Promise<void>;
   getSttStatus(): Promise<SttStatus>;
   setupStt(): Promise<void>;
   setMicEnabled(enabled: boolean): Promise<void>;
@@ -185,6 +226,7 @@ export interface RaphaelApi {
   onAiSetupProgress(cb: (progress: AiSetupProgress) => void): () => void;
   onFullscreenChange(cb: (isFullscreen: boolean) => void): () => void;
   onSttSetupProgress(cb: (progress: SttSetupProgress) => void): () => void;
+  onDesktopStatus(cb: (status: DesktopEngineStatus) => void): () => void;
 }
 
 export const IPC = {
@@ -207,6 +249,9 @@ export const IPC = {
   setVoice: 'raphael:setVoice',
   toggleFullscreen: 'raphael:toggleFullscreen',
   getStats: 'raphael:getStats',
+  getDesktopStatus: 'raphael:getDesktopStatus',
+  setupDesktopPerception: 'raphael:setupDesktopPerception',
+  desktopStatusEvent: 'raphael:desktopStatusEvent',
   getSttStatus: 'raphael:getSttStatus',
   setupStt: 'raphael:setupStt',
   setMicEnabled: 'raphael:setMicEnabled',

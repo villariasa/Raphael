@@ -41,6 +41,75 @@ const SYSTEM_INFO_PATTERNS = [
   /detect (my )?(environment|system)/i
 ];
 
+/** "What's on screen / active window?" → read-only window inspection (§9). */
+const ACTIVE_WINDOW_PATTERNS = [
+  /^what(?:'?s| is)?\s+(?:the\s+)?(?:active|current|focused)\s+(?:window|app|application)\b/i,
+  /^what(?:'?s| is)?\s+(?:currently\s+)?on\s+(?:my\s+)?screen\b/i,
+  /^what\s+screen\s+are\s+we\s+on\b/i,
+  /^what\s+am\s+i\s+looking\s+at\b/i
+];
+
+interface WindowIntent {
+  position: 'left' | 'right' | 'maximize' | 'minimize' | 'restore' | 'center' | 'focus' | 'resize' | 'monitor';
+  app: string;
+  width?: number;
+  height?: number;
+  monitor?: number;
+}
+
+/** UI-interaction intents (click/type/scroll/observe) — Desktop Engine §4/§9/§10. */
+interface UiIntent {
+  kind: 'read_screen' | 'click_element' | 'type_text' | 'scroll';
+  query?: string;
+  text?: string;
+  amount?: number;
+}
+
+function parseUiIntent(text: string): UiIntent | null {
+  let m: RegExpMatchArray | null;
+
+  m = text.match(/^click\s+(?:on\s+)?(?:the\s+)?["“]?(.+?)["”]?(?:\s+button|\s+link|\s+icon|\s+tab)?$/i);
+  if (m) return { kind: 'click_element', query: m[1].trim() };
+
+  m = text.match(/^type\s+["“](.+?)["”]$/i) || text.match(/^type\s+(.+)$/i);
+  if (m) return { kind: 'type_text', text: m[1] };
+
+  if (/^scroll\s+down\b/i.test(text)) return { kind: 'scroll', amount: -500 };
+  if (/^scroll\s+up\b/i.test(text)) return { kind: 'scroll', amount: 500 };
+
+  return null;
+}
+
+/** Parse a window-management command → structured intent, or null. */
+function parseWindowIntent(text: string): WindowIntent | null {
+  let m: RegExpMatchArray | null;
+
+  m = text.match(/^(?:move|put|snap|dock)\s+(.+?)\s+(?:to\s+the\s+|on\s+the\s+|to\s+|on\s+)?(left|right)(?:\s+(?:side|half))?$/i);
+  if (m) return { position: m[2].toLowerCase() as 'left' | 'right', app: m[1].trim() };
+
+  m = text.match(/^maximi[sz]e\s+(.+)$/i);
+  if (m) return { position: 'maximize', app: m[1].trim() };
+  m = text.match(/^minimi[sz]e\s+(.+)$/i);
+  if (m) return { position: 'minimize', app: m[1].trim() };
+  m = text.match(/^restore\s+(.+)$/i);
+  if (m) return { position: 'restore', app: m[1].trim() };
+  m = text.match(/^(?:center|centre)\s+(.+)$/i);
+  if (m) return { position: 'center', app: m[1].trim() };
+  m = text.match(/^(?:focus|switch\s+to|bring\s+up)\s+(.+)$/i);
+  if (m) return { position: 'focus', app: m[1].trim() };
+
+  m = text.match(/^(?:resize|make)\s+(.+?)\s+(?:to\s+)?(\d{2,5})\s*[x×by]+\s*(\d{2,5})$/i);
+  if (m) return { position: 'resize', app: m[1].trim(), width: parseInt(m[2], 10), height: parseInt(m[3], 10) };
+
+  m = text.match(/^move\s+(.+?)\s+to\s+(?:my\s+)?(?:the\s+)?(?:(second|2nd|third|3rd|first|1st)\s+monitor|monitor\s+(\d))$/i);
+  if (m) {
+    const words: Record<string, number> = { first: 1, '1st': 1, second: 2, '2nd': 2, third: 3, '3rd': 3 };
+    const n = m[2] ? (words[m[2].toLowerCase()] ?? 2) : parseInt(m[3], 10);
+    return { position: 'monitor', app: m[1].trim(), monitor: Math.max(0, n - 1) };
+  }
+  return null;
+}
+
 /**
  * Action kinds the LLM's free-form planning fallback is allowed to
  * self-author (§20). Deliberately excludes 'execute_command' even though
@@ -66,6 +135,57 @@ export class Planner {
 
   async plan(userText: string, history: ChatMessage[] = []): Promise<Plan> {
     const text = userText.trim();
+
+    // 1. Window management (Desktop Engine) — must come before open-app
+    // patterns so "move chrome left" / "maximize vs code" aren't read as
+    // "open <something>".
+    for (const pattern of ACTIVE_WINDOW_PATTERNS) {
+      if (pattern.test(text)) {
+        const action: SafeAction = {
+          action: 'move_window',
+          description: 'Check the active window and what is on screen.',
+          params: { position: 'active' },
+          requiresAdmin: false,
+          permissions: ['read_screen']
+        };
+        return { id: randomUUID(), summary: 'Inspect the active window', steps: [action] };
+      }
+    }
+    const win = parseWindowIntent(text);
+    if (win) {
+      const action: SafeAction = {
+        action: 'move_window',
+        description: `Window: ${win.position} "${win.app}".`,
+        params: { app: win.app, position: win.position, width: win.width, height: win.height, monitor: win.monitor },
+        requiresAdmin: false,
+        permissions: ['window_control']
+      };
+      return { id: randomUUID(), summary: `${win.position} ${win.app}`, steps: [action] };
+    }
+
+    // UI interaction (click / type / scroll) via the Desktop perception engine.
+    const ui = parseUiIntent(text);
+    if (ui) {
+      const perms: Record<UiIntent['kind'], string[]> = {
+        read_screen: ['read_screen'],
+        click_element: ['control_mouse'],
+        type_text: ['control_keyboard'],
+        scroll: ['control_mouse']
+      };
+      const descr =
+        ui.kind === 'click_element' ? `Click "${ui.query}".`
+        : ui.kind === 'type_text' ? `Type into the focused field.`
+        : ui.kind === 'scroll' ? `Scroll ${(ui.amount ?? 0) > 0 ? 'up' : 'down'}.`
+        : 'Read the screen.';
+      const action: SafeAction = {
+        action: ui.kind,
+        description: descr,
+        params: { query: ui.query, text: ui.text, amount: ui.amount },
+        requiresAdmin: false,
+        permissions: perms[ui.kind]
+      };
+      return { id: randomUUID(), summary: descr, steps: [action] };
+    }
 
     // 2. Browser / URL / Search — must come before the generic "open X"
     // app-launch patterns below, or "open google.com" / "open browser"
@@ -245,6 +365,12 @@ Supported JSON formats:
 - Close app: {"action": "close_application", "description": "Closing Chrome.", "params": {"app": "chrome"}}
 - Open URL: {"action": "open_url", "description": "Opening github.com.", "params": {"url": "https://github.com"}}
 - Search browser: {"action": "search_browser", "description": "Searching Google for X.", "params": {"query": "X", "engine": "google"}}
+- Window control: {"action": "move_window", "description": "Putting Chrome on the left.", "params": {"app": "chrome", "position": "left"}}  (position: left|right|maximize|minimize|restore|center|focus|resize|monitor; resize adds width,height; monitor adds monitor index)
+- Active window: {"action": "move_window", "description": "Checking the active window.", "params": {"position": "active"}}
+- Read screen: {"action": "read_screen", "description": "Observing your screen.", "params": {}}
+- Click element: {"action": "click_element", "description": "Clicking the Add Product button.", "params": {"query": "Add Product"}}
+- Type text: {"action": "type_text", "description": "Typing.", "params": {"text": "hello world"}}
+- Scroll: {"action": "scroll", "description": "Scrolling down.", "params": {"amount": -500}}
 - Create folder: {"action": "create_folder", "description": "Creating folder Projects.", "params": {"name": "Projects"}}
 - Create file: {"action": "create_file", "description": "Creating notes.txt.", "params": {"name": "notes.txt"}}
 - Check system: {"action": "read_system_info", "description": "Checking your system, My Liege.", "params": {}}

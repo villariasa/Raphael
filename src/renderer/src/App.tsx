@@ -331,7 +331,12 @@ function MainApp() {
             completedAt={completedAt}
             onStats={setDebugStats}
           />
-          <ResponseSystem trigger={orchestrator.responseTrigger} response={orchestrator.response} onRevealStart={orchestrator.onRevealStart} />
+          <ResponseSystem
+            timeline={orchestrator.timeline}
+            currentTimeSec={orchestrator.currentTimeSec}
+            isPlaying={orchestrator.isSpeaking}
+            active={orchestrator.isActive}
+          />
           <button
             onClick={() => window.raphael.toggleFullscreen()}
             className="absolute right-3 top-3 z-20 rounded-md border border-white/20 bg-black/40 px-2.5 py-1 text-xs text-white/80 hover:bg-black/70 hover:text-white"
@@ -339,9 +344,11 @@ function MainApp() {
           >
             Exit fullscreen
           </button>
-          <div className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center px-6">
-            <RaphaelSubtitle text={orchestrator.subtitleText} nonce={orchestrator.subtitleNonce} />
-          </div>
+          {orchestrator.ttsNotice && (
+            <div className="pointer-events-none absolute top-14 left-1/2 -translate-x-1/2 z-30 rounded border border-raphael-danger/60 bg-black/85 px-3 py-1 font-mono text-[11px] text-raphael-danger tracking-widest shadow-lg">
+              {orchestrator.ttsNotice}
+            </div>
+          )}
         </div>
         <form onSubmit={handleSubmit} className="mt-4 flex gap-2">
           {renderMicButton()}
@@ -521,8 +528,27 @@ function MainApp() {
                           <option value="important">Important only</option>
                         </select>
                       </label>
+                      <div className="border-t border-raphael-border pt-2">
+                        <div className="mb-1.5 text-[10px] uppercase tracking-wider text-raphael-textMuted">Desktop control</div>
+                        {([
+                          ['readScreen', 'Read screen'],
+                          ['windowControl', 'Move windows'],
+                          ['controlMouse', 'Control mouse'],
+                          ['controlKeyboard', 'Control keyboard']
+                        ] as const).map(([key, label]) => (
+                          <label key={key} className="flex items-center justify-between py-0.5">
+                            <span className="text-raphael-textMuted">{label}</span>
+                            <input
+                              type="checkbox"
+                              checked={uiSettings.desktopCapabilities[key]}
+                              onChange={(e) => update({ desktopCapabilities: { ...uiSettings.desktopCapabilities, [key]: e.target.checked } })}
+                              className="accent-raphael-accent"
+                            />
+                          </label>
+                        ))}
+                      </div>
                       <p className="border-t border-raphael-border pt-2 text-[10px] text-raphael-textMuted">
-                        Defaults give the full experience: voice on, animation full, every reply.
+                        Defaults give the full experience. Desktop control is Windows-only; disabling a capability hard-blocks it.
                       </p>
                     </div>
                   );

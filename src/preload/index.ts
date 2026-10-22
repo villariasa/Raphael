@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { RaphaelApi, PermissionRequest, TaskStatusUpdate, ActivityEntry, PermissionDecision, VoiceOption, SttSetupProgress, IPC as IpcType } from '../shared/ipc';
+import type { RaphaelApi, PermissionRequest, TaskStatusUpdate, ActivityEntry, PermissionDecision, VoiceOption, SttSetupProgress, DesktopEngineStatus, IPC as IpcType } from '../shared/ipc';
 
 const IPC: typeof IpcType = {
   getEnvironmentProfile: 'raphael:getEnvironmentProfile',
@@ -27,6 +27,9 @@ const IPC: typeof IpcType = {
   transcribe: 'raphael:transcribe',
   getUiSettings: 'raphael:getUiSettings',
   setUiSettings: 'raphael:setUiSettings',
+  getDesktopStatus: 'raphael:getDesktopStatus',
+  setupDesktopPerception: 'raphael:setupDesktopPerception',
+  desktopStatusEvent: 'raphael:desktopStatusEvent',
   permissionRequestEvent: 'raphael:permissionRequestEvent',
   taskStatusEvent: 'raphael:taskStatusEvent',
   activityEvent: 'raphael:activityEvent',
@@ -60,6 +63,8 @@ const api: RaphaelApi = {
   setVoice: (voice: VoiceOption) => ipcRenderer.invoke(IPC.setVoice, voice),
   toggleFullscreen: () => ipcRenderer.invoke(IPC.toggleFullscreen),
   getStats: () => ipcRenderer.invoke(IPC.getStats),
+  getDesktopStatus: () => ipcRenderer.invoke(IPC.getDesktopStatus),
+  setupDesktopPerception: () => ipcRenderer.invoke(IPC.setupDesktopPerception),
   getSttStatus: () => ipcRenderer.invoke(IPC.getSttStatus),
   setupStt: () => ipcRenderer.invoke(IPC.setupStt),
   setMicEnabled: (enabled: boolean) => ipcRenderer.invoke(IPC.setMicEnabled, enabled),
@@ -96,6 +101,11 @@ const api: RaphaelApi = {
     const listener = (_: unknown, progress: SttSetupProgress) => cb(progress);
     ipcRenderer.on(IPC.sttSetupEvent, listener);
     return () => ipcRenderer.removeListener(IPC.sttSetupEvent, listener);
+  },
+  onDesktopStatus: (cb: (status: DesktopEngineStatus) => void) => {
+    const listener = (_: unknown, status: DesktopEngineStatus) => cb(status);
+    ipcRenderer.on(IPC.desktopStatusEvent, listener);
+    return () => ipcRenderer.removeListener(IPC.desktopStatusEvent, listener);
   }
 };
 
