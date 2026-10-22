@@ -50,7 +50,11 @@ export function FloatingVisualizer() {
       animationMode: 'full',
       scope: 'always'
     });
-    orchestrator.handle(r, 'ja-JP-female');
+    // Same synth result as the main window (cached in the main process), but
+    // playAudio:false — only the main window owns the sound, so the floating
+    // window animates/subtitles the identical spoken text without doubling
+    // the voice. Voice choice follows the user's saved setting.
+    orchestrator.handle(r, undefined, { playAudio: false });
   }
 
   useEffect(() => {
@@ -89,6 +93,7 @@ export function FloatingVisualizer() {
     hasSteps: !!taskStatus?.totalSteps,
     isSpeaking: orchestrator.isSpeaking,
     isListening: false,
+    preparingVoice: orchestrator.isPreparingVoice,
     debugOverride: null
   });
 

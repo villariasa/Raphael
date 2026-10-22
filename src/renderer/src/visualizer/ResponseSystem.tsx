@@ -362,15 +362,52 @@ export function ResponseSystem({
         </div>
       )}
 
-      {/* English Subtitle Bar (The only English when animating Japanese text) */}
+      {/* Subtitle Bar — reveals the spoken text piece by piece, in sync with the voice */}
       {isResponsePhase && timeline.transcriptText && (
         <div className="rsx-hud-subtitle rsx-serif">
           <span className="rsx-hud-subtitle-tag rsx-mono">SUBTITLE //</span>
-          <span>{timeline.transcriptText}</span>
+          <span>{progressiveSubtitle(timeline, currentTimeSec)}</span>
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * Rolling voice-synced subtitle: only words whose start time has been reached
+ * by the playback clock are shown, trimmed from the front so it stays ~1–2
+ * lines instead of growing into a paragraph. Timing comes from the same
+ * word segments that drive the formation animation (edge-tts WebVTT
+ * timestamps when available, estimated timing otherwise).
+ */
+function progressiveSubtitle(timeline: ResponseTimeline, currentTimeSec: number, maxChars = 84): string {
+  const words = timeline.segments;
+  if (words.length === 0) return '';
+
+  let revealed = 0;
+  for (let i = 0; i < words.length; i++) {
+    if (words[i].start <= currentTimeSec) revealed = i + 1;
+    else break;
+  }
+  if (revealed === 0) return '';
+
+  // Japanese segments are sub-word glyph runs: join without spaces.
+  const joiner = /[぀-ヿ㐀-䶿一-鿿]/.test(timeline.transcriptText ?? '') ? '' : ' ';
+
+  // Keep the tail that fits within maxChars, ending at the newest word, so
+  // older words scroll off the front as the voice advances.
+  let start = revealed;
+  let len = -joiner.length;
+  while (start > 0) {
+    const addition = words[start - 1].text.length + joiner.length;
+    if (len + addition > maxChars && start < revealed) break;
+    len += addition;
+    start--;
+  }
+  return words
+    .slice(start, revealed)
+    .map((w) => w.text)
+    .join(joiner);
 }
 
 function hexA(hex: string, alpha: number): string {

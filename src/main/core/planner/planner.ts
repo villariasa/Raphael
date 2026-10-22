@@ -19,6 +19,22 @@ const SEARCH_PATTERNS = [
   /^search\s+["“]?(.+?)["”]?$/i
 ];
 
+/**
+ * "Play music / play my playlist" → YouTube in the user's default browser
+ * (their logged-in Chrome session, so personal playlists like Liked Songs
+ * and Watch Later resolve). Ordered: specific playlist phrasings first,
+ * generic "play music" last, "play <something>" (a named song/artist) as a
+ * search fallback.
+ */
+const MUSIC_LIKED_PATTERNS = [
+  /^play\s+(?:my\s+)?(?:youtube\s+)?(?:liked\s+(?:songs|music|videos)|favou?rites?)$/i,
+  /^play\s+(?:some\s+)?music(?:\s+(?:from|on)\s+(?:my\s+)?(?:youtube|chrome)(?:\s+playlist)?)?$/i,
+  /^play\s+(?:my\s+)?(?:youtube\s+|chrome\s+)?playlist$/i,
+  /^(?:auto\s*)?play\s+(?:a\s+|some\s+)?(?:music|songs?)$/i
+];
+const MUSIC_WATCH_LATER_PATTERN = /^play\s+(?:my\s+)?watch\s*later(?:\s+(?:playlist|list))?$/i;
+const MUSIC_QUERY_PATTERN = /^play\s+(?:the\s+)?(?:song|track|artist|album|music)\s+["“]?(.+?)["”]?$/i;
+
 const RUN_COMMAND_PATTERNS = [
   /^(?:run|exec|execute|powershell|cmd|terminal)\s*[:]\s*(.+)$/i,
   /^(?:run|execute)\s+(?:command\s+|script\s+)?["“]?(.+?)["”]?$/i
@@ -90,6 +106,33 @@ function parseUiIntent(text: string): UiIntent | null {
   if (/^scroll\s+down\b/i.test(text)) return { kind: 'scroll', amount: -500 };
   if (/^scroll\s+up\b/i.test(text)) return { kind: 'scroll', amount: 500 };
 
+  return null;
+}
+
+/** Parse a music-playback command → play_music params, or null. */
+function parseMusicIntent(text: string): { description: string; params: Record<string, unknown> } | null {
+  if (MUSIC_WATCH_LATER_PATTERN.test(text)) {
+    return {
+      description: 'Playing your Watch Later playlist on YouTube, My Liege.',
+      params: { playlist: 'watch-later' }
+    };
+  }
+  for (const pattern of MUSIC_LIKED_PATTERNS) {
+    if (pattern.test(text)) {
+      return {
+        description: 'Playing music from your YouTube playlist, My Liege.',
+        params: { playlist: 'liked' }
+      };
+    }
+  }
+  const queryMatch = text.match(MUSIC_QUERY_PATTERN);
+  if (queryMatch) {
+    const q = queryMatch[1].trim();
+    return {
+      description: `Playing "${q}" on YouTube, My Liege.`,
+      params: { query: q }
+    };
+  }
   return null;
 }
 
@@ -275,6 +318,19 @@ export class Planner {
         permissions: perms[ui.kind]
       };
       return { id: randomUUID(), summary: descr, steps: [action] };
+    }
+
+    // Music playback via the user's logged-in YouTube session in Chrome.
+    const musicIntent = parseMusicIntent(text);
+    if (musicIntent) {
+      const action: SafeAction = {
+        action: 'play_music',
+        description: musicIntent.description,
+        params: musicIntent.params,
+        requiresAdmin: false,
+        permissions: ['browser_control']
+      };
+      return { id: randomUUID(), summary: musicIntent.description, steps: [action] };
     }
 
     // 2. Browser / URL / Search — must come before the generic "open X"
@@ -573,6 +629,7 @@ Supported JSON formats:
 - List installed apps: {"action": "list_installed_applications", "description": "Scanning your installed applications, My Liege.", "params": {}}
 - Open URL: {"action": "open_url", "description": "Opening github.com.", "params": {"url": "https://github.com"}}
 - Search browser: {"action": "search_browser", "description": "Searching Google for X.", "params": {"query": "X", "engine": "google"}}
+- Play music: {"action": "play_music", "description": "Playing music from your YouTube playlist, My Liege.", "params": {"playlist": "liked"}}  (playlist: liked|watch-later|<YouTube playlist ID>; or use {"query": "song or artist"} to play a specific song)
 - Window control: {"action": "move_window", "description": "Putting Chrome on the left.", "params": {"app": "chrome", "position": "left"}}  (position: left|right|maximize|minimize|restore|center|focus|resize|monitor; resize adds width,height; monitor adds monitor index)
 - Active window: {"action": "move_window", "description": "Checking the active window.", "params": {"position": "active"}}
 - Read screen: {"action": "read_screen", "description": "Observing your screen.", "params": {}}

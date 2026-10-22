@@ -17,12 +17,25 @@ export interface OrchestratorState {
   currentTimeSec: number;
   isSpeaking: boolean;
   isActive: boolean;
+  /** True from reply arrival until the voice timeline starts (translation +
+   *  synthesis in flight) — keeps the thinking visual alive meanwhile. */
+  isPreparingVoice: boolean;
   ttsNotice: string | null;
   transcriptText: string | null;
 }
 
+export interface HandleOptions {
+  /** When false, build the voice-synced timeline but never play the audio
+   *  (the floating window animates while the main window owns the sound). */
+  playAudio?: boolean;
+}
+
 export interface Orchestrator extends OrchestratorState {
-  handle: (r: SystemResponse, voiceOverride?: import('../../../shared/ipc').VoiceOption) => Promise<void>;
+  handle: (
+    r: SystemResponse,
+    voiceOverride?: import('../../../shared/ipc').VoiceOption,
+    options?: HandleOptions
+  ) => Promise<void>;
   interrupt: () => void;
 }
 
@@ -46,6 +59,7 @@ export function useResponseOrchestrator(): Orchestrator {
   const [currentTimeSec, setCurrentTimeSec] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isActive, setIsActive] = useState(false);
+  const [isPreparingVoice, setIsPreparingVoice] = useState(false);
   const [ttsNotice, setTtsNotice] = useState<string | null>(null);
   const [transcriptText, setTranscriptText] = useState<string | null>(null);
 
@@ -64,6 +78,7 @@ export function useResponseOrchestrator(): Orchestrator {
     currentIdRef.current = '';
     setIsSpeaking(false);
     setIsActive(false);
+    setIsPreparingVoice(false);
     setCurrentTimeSec(0);
     setTimeline(null);
   }
@@ -95,76 +110,107 @@ export function useResponseOrchestrator(): Orchestrator {
     rafRef.current = requestAnimationFrame(checkFrame);
   }
 
-  async function handle(r: SystemResponse, voiceOverride?: import('../../../shared/ipc').VoiceOption) {
+  /** Single wall-clock reveal of the English message (no audio). Used when
+   *  voice is off or synthesis failed — one animation, never two. */
+  function startTextOnlyReveal(r: SystemResponse) {
+    if (currentIdRef.current !== r.responseId) return;
+    const duration = estimateReadMs(r.spokenScript) / 1000;
+    const textTimeline = VoiceTimelineProvider.buildTimeline({
+      responseId: r.responseId,
+      responseType: r.responseType,
+      label: r.systemLabel,
+      message: r.message,
+      spokenScript: r.spokenScript,
+      audioDuration: duration,
+      accent: r.accent,
+      accent2: r.accent2
+    });
+    textTimeline.transcriptText = r.message;
+
+    setIsPreparingVoice(false);
+    setTimeline(textTimeline);
+    setIsActive(true);
+    setCurrentTimeSec(0);
+    markTextOnlyReveal(duration * 1000);
+    startAnimationLoop(textTimeline);
+  }
+
+  async function handle(
+    r: SystemResponse,
+    voiceOverride?: import('../../../shared/ipc').VoiceOption,
+    options?: HandleOptions
+  ) {
     interrupt();
 
     currentIdRef.current = r.responseId;
     setTranscriptText(r.message);
     setTtsNotice(null);
 
-    // 1. Immediately build and start visual response timeline (0ms UI latency)
-    const initialDuration = estimateReadMs(r.spokenScript) / 1000;
-    const initialTimeline = VoiceTimelineProvider.buildTimeline({
-      responseId: r.responseId,
-      responseType: r.responseType,
-      label: r.systemLabel,
-      message: r.message,
-      spokenScript: r.spokenScript,
-      audioDuration: initialDuration,
-      accent: r.accent,
-      accent2: r.accent2
-    });
-    initialTimeline.transcriptText = r.message;
+    // No voice → single text reveal immediately.
+    if (!r.voice.enabled || typeof window.raphael?.speak !== 'function') {
+      startTextOnlyReveal(r);
+      return;
+    }
 
-    setTimeline(initialTimeline);
-    setIsActive(true);
-    setCurrentTimeSec(0);
-    markTextOnlyReveal(initialDuration * 1000);
-    startAnimationLoop(initialTimeline);
+    // Voice enabled → wait for synthesis and run ONE timeline built from the
+    // actual spoken text (Japanese when the Japanese voice is selected), so
+    // the answer never animates twice (English first, Japanese second).
+    setIsPreparingVoice(true);
+    try {
+      await resumeAudioContext();
+      const result: SpeakResult = await window.raphael.speak(r.spokenScript, voiceOverride);
+      if (currentIdRef.current !== r.responseId) return;
 
-    // 2. Synthesize voice in parallel without blocking the UI response
-    if (r.voice.enabled && typeof window.raphael?.speak === 'function') {
-      resumeAudioContext()
-        .then(() => window.raphael.speak(r.spokenScript, voiceOverride))
-        .then(async (result: SpeakResult) => {
-          if (currentIdRef.current !== r.responseId) return;
+      if (result && result.ok) {
+        const audioBuffer = await decodeAudioBytes(result.audioBase64);
+        if (currentIdRef.current !== r.responseId) return;
+        if (!audioBuffer) {
+          setTtsNotice('VOICE SYSTEM UNAVAILABLE');
+          startTextOnlyReveal(r);
+          return;
+        }
 
-          if (result && result.ok) {
-            const audioBuffer = await decodeAudioBytes(result.audioBase64);
-            if (currentIdRef.current !== r.responseId || !audioBuffer) return;
+        const displayText = result.japaneseText || r.message;
+        const spokenScript = result.spokenText || r.spokenScript;
 
-            const displayText = result.japaneseText || r.message;
-            const spokenScript = result.spokenText || r.spokenScript;
-
-            const refinedTimeline = VoiceTimelineProvider.buildTimeline({
-              responseId: r.responseId,
-              responseType: r.responseType,
-              label: r.systemLabel,
-              message: displayText,
-              spokenScript,
-              audioDuration: audioBuffer.duration,
-              rawTimestamps: result.timestamps,
-              accent: r.accent,
-              accent2: r.accent2
-            });
-            refinedTimeline.transcriptText = r.message;
-
-            setTimeline(refinedTimeline);
-            setIsSpeaking(true);
-            playDecodedBuffer(audioBuffer, () => {
-              setIsSpeaking(false);
-            });
-            startAnimationLoop(refinedTimeline);
-          } else {
-            setTtsNotice('VOICE SYSTEM UNAVAILABLE');
-          }
-        })
-        .catch((err) => {
-          console.warn('[useResponseOrchestrator] TTS synthesis error:', err);
-          if (currentIdRef.current === r.responseId) {
-            setTtsNotice('VOICE SYSTEM UNAVAILABLE');
-          }
+        const voiceTimeline = VoiceTimelineProvider.buildTimeline({
+          responseId: r.responseId,
+          responseType: r.responseType,
+          label: r.systemLabel,
+          message: displayText,
+          spokenScript,
+          audioDuration: audioBuffer.duration,
+          rawTimestamps: result.timestamps,
+          accent: r.accent,
+          accent2: r.accent2
         });
+        // Subtitle follows the voice: what you read is what is being said.
+        voiceTimeline.transcriptText = displayText;
+
+        setIsPreparingVoice(false);
+        setTimeline(voiceTimeline);
+        setIsActive(true);
+        setCurrentTimeSec(0);
+        if (options?.playAudio === false) {
+          // Animate in sync with the (externally playing) audio duration.
+          markTextOnlyReveal(audioBuffer.duration * 1000);
+        } else {
+          setIsSpeaking(true);
+          playDecodedBuffer(audioBuffer, () => {
+            setIsSpeaking(false);
+          });
+        }
+        startAnimationLoop(voiceTimeline);
+      } else {
+        setTtsNotice('VOICE SYSTEM UNAVAILABLE');
+        startTextOnlyReveal(r);
+      }
+    } catch (err) {
+      console.warn('[useResponseOrchestrator] TTS synthesis error:', err);
+      if (currentIdRef.current === r.responseId) {
+        setTtsNotice('VOICE SYSTEM UNAVAILABLE');
+        startTextOnlyReveal(r);
+      }
     }
   }
 
@@ -181,6 +227,7 @@ export function useResponseOrchestrator(): Orchestrator {
     currentTimeSec,
     isSpeaking,
     isActive,
+    isPreparingVoice,
     ttsNotice,
     transcriptText,
     handle,

@@ -112,9 +112,10 @@ function MainApp() {
         hasSteps: !!stepInfo,
         isSpeaking,
         isListening: voiceInput.listening,
+        preparingVoice: orchestrator.isPreparingVoice,
         debugOverride: debugState
       }),
-    [aiError, taskError, permissionRequest, running, paused, stepInfo, isSpeaking, voiceInput.listening, debugState]
+    [aiError, taskError, permissionRequest, running, paused, stepInfo, isSpeaking, voiceInput.listening, orchestrator.isPreparingVoice, debugState]
   );
 
   /**
@@ -215,6 +216,11 @@ function MainApp() {
     const offStt = window.raphael.onSttSetupProgress?.((p) => {
       setSttStage(p.stage);
       setSttAvailable(p.stage === 'ready');
+      // Make the voice-engine state visible in the status line, not just the
+      // mic tooltip — "mic doesn't work" is usually "engine still preparing".
+      if (p.stage === 'ready') setStatus('Voice input ready — speak anytime.');
+      else if (p.stage === 'error') setStatus(`Voice input unavailable: ${p.message}`);
+      else if (p.stage !== 'idle') setStatus(`Voice: ${p.message}`);
     });
 
     return () => {
@@ -280,6 +286,13 @@ function MainApp() {
     if (!micEnabled) {
       await window.raphael.setMicEnabled?.(true);
       setMicEnabled(true);
+    }
+    if (!voiceInput.listening && sttStage !== 'ready') {
+      setStatus(
+        sttStage === 'error'
+          ? 'Voice engine failed to set up — check that Python 3 is installed. Typing still works.'
+          : 'Voice engine is preparing (first run downloads the speech model) — the mic will work once it\'s ready…'
+      );
     }
     voiceInput.toggle();
   }

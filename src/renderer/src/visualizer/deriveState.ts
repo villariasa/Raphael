@@ -9,6 +9,9 @@ export interface DeriveStateInput {
   hasSteps: boolean;
   isSpeaking: boolean;
   isListening: boolean;
+  /** Voice reply is being translated/synthesized — hold the thinking visual
+   *  instead of dropping to idle before the voice starts. */
+  preparingVoice?: boolean;
   debugOverride: RaphaelState | null;
 }
 
@@ -24,6 +27,7 @@ export function deriveRaphaelState(input: DeriveStateInput): RaphaelState {
   if (input.taskError || input.aiError) return 'error';
   if (input.isSpeaking) return 'speaking';
   if (input.permissionPending) return 'waiting_for_permission';
+  if (input.preparingVoice) return 'thinking';
   if (input.running && !input.paused) return input.hasSteps ? 'executing' : 'thinking';
   if (input.isListening) return 'listening';
   return 'idle';

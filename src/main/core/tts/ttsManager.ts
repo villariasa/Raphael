@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import type { VoiceOption, SpeechTimestamp } from '../../../shared/ipc';
+import type { AiProvider } from '../ai/provider';
 import { localizeToJapaneseLady } from './japaneseVoiceLocalizer';
 
 export type TtsResult =
@@ -98,6 +99,22 @@ function run(cmd: string, args: string[], input?: string): Promise<void> {
  */
 export class TtsManager {
   private installedPys = new Set<string>();
+  // Both windows (main + floating) may request the exact same reply; cache
+  // the synth result so the second call reuses the WAV + timestamps.
+  private synthCache = new Map<string, TtsResult & { ok: true }>();
+
+  constructor(private readonly ai?: AiProvider) {}
+
+  private cacheResult(key: string, result: TtsResult): TtsResult {
+    if (result.ok) {
+      if (this.synthCache.size >= 20) {
+        const oldest = this.synthCache.keys().next().value;
+        if (oldest !== undefined) this.synthCache.delete(oldest);
+      }
+      this.synthCache.set(key, result);
+    }
+    return result;
+  }
 
   private async ensureEdgeTts(py: string): Promise<void> {
     if (this.installedPys.has(py)) return;
@@ -113,10 +130,14 @@ export class TtsManager {
     const clean = text.trim().replace(/[\x00-\x09\x0b-\x1f\x7f]/g, ' ').slice(0, 2000);
     if (!clean) return { ok: false, reason: 'Empty text.' };
 
+    const cacheKey = `${voice}|${clean}`;
+    const cachedResult = this.synthCache.get(cacheKey);
+    if (cachedResult) return cachedResult;
+
     const tmpFile = path.join(os.tmpdir(), `raphael-tts-${crypto.randomUUID()}.wav`);
 
     // When voice is ja-JP-female or contains Japanese characters, speak in Japanese
-    const isJapanese = voice === 'ja-JP-female' || /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(clean);
+    let isJapanese = voice === 'ja-JP-female' || /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(clean);
     let speechText = clean;
     let japaneseText: string | undefined;
 
@@ -134,9 +155,17 @@ export class TtsManager {
         body = clean.slice(prefixMatch[0].length).trim();
       }
 
-      const localizedBody = await localizeToJapaneseLady(body || clean);
-      speechText = prefix ? `${prefix}${localizedBody}` : localizedBody;
-      japaneseText = speechText;
+      const localizedBody = await localizeToJapaneseLady(body || clean, this.ai);
+      if (localizedBody) {
+        speechText = prefix ? `${prefix}${localizedBody}` : localizedBody;
+        japaneseText = speechText;
+      } else {
+        // No faithful translation available — degrade honestly: speak the
+        // real English answer with the English voice instead of a canned
+        // Japanese line that doesn't match the content.
+        isJapanese = false;
+        speechText = clean;
+      }
     }
 
     const neuralVoice = isJapanese ? 'ja-JP-NanamiNeural' : 'en-US-JennyNeural';
@@ -169,7 +198,14 @@ export class TtsManager {
         fs.unlink(subTmp).catch(() => {});
 
         if (buffer && buffer.length > 100) {
-          return { ok: true, buffer, mime: 'audio/mp3', timestamps, spokenText: speechText, japaneseText };
+          return this.cacheResult(cacheKey, {
+            ok: true,
+            buffer,
+            mime: 'audio/mp3',
+            timestamps,
+            spokenText: speechText,
+            japaneseText
+          });
         }
       } catch {
         // Try installing edge-tts if not yet present, then try next candidate
@@ -224,7 +260,14 @@ export class TtsManager {
       }
 
       const buffer = await fs.readFile(tmpFile);
-      return { ok: true, buffer, mime: 'audio/wav', timestamps, spokenText: speechText, japaneseText };
+      return this.cacheResult(cacheKey, {
+        ok: true,
+        buffer,
+        mime: 'audio/wav',
+        timestamps,
+        spokenText: speechText,
+        japaneseText
+      });
     } catch (err: any) {
       return { ok: false, reason: err?.message ?? 'TTS synthesis failed.' };
     } finally {

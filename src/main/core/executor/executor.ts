@@ -234,6 +234,39 @@ export class Executor {
         this.activity.append(res.detail, 'success');
         return;
       }
+      case 'play_music': {
+        const playlist = String(step.params.playlist ?? '').trim();
+        const query = String(step.params.query ?? '').trim();
+
+        let url: string;
+        let what: string;
+        if (query) {
+          url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+          what = `search results for "${query}"`;
+        } else {
+          // LL = Liked videos, WL = Watch Later — the user's own playlists in
+          // their logged-in Chrome session. playnext=1 starts playback of the
+          // first entry instead of landing on the playlist page.
+          const listId =
+            playlist === 'watch-later'
+              ? 'WL'
+              : playlist && playlist !== 'liked' && /^[A-Za-z0-9_-]{2,64}$/.test(playlist)
+              ? playlist
+              : 'LL';
+          url = `https://www.youtube.com/playlist?list=${listId}&playnext=1`;
+          what = listId === 'WL' ? 'your Watch Later playlist' : listId === 'LL' ? 'your liked songs' : `playlist ${listId}`;
+        }
+
+        progress(`Opening ${what} on YouTube...`);
+        progress('Verifying a browser actually opened...');
+        const res = await openUrlInBrowser(url);
+        if (!res.success) {
+          this.activity.append(res.detail, 'error');
+          throw new Error(res.detail);
+        }
+        this.activity.append(`Music: opened ${what} on YouTube in your browser.`, 'success');
+        return;
+      }
       case 'execute_command': {
         const command = String(step.params.command ?? '').trim();
         const cwd = step.params.cwd ? String(step.params.cwd).trim() : undefined;

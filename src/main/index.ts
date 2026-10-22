@@ -58,7 +58,7 @@ const executor = new Executor(
   () => settingsStore.getUiSettings().desktopCapabilities
 );
 const taskManager = new TaskManager(executor, activity);
-const ttsManager = new TtsManager();
+const ttsManager = new TtsManager(ai);
 const sttManager = new SttManager(path.join(__dirname, 'core/stt/sidecar/sense_voice_server.py'));
 
 let mainWindow: BrowserWindow | null = null;

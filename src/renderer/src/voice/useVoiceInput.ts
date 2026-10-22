@@ -59,7 +59,12 @@ export function useVoiceInput(opts: Opts) {
     cbRef.current.onUtterance(b64);
   };
 
-  const stop = () => {
+  const listeningRef = useRef(false);
+  const acquiringRef = useRef(false);
+  const watcherRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  /** Release only the capture hardware/graph; `listening` intent survives. */
+  const teardownCapture = () => {
     try {
       procRef.current?.disconnect();
       sourceRef.current?.disconnect();
@@ -79,14 +84,11 @@ export function useVoiceInput(opts: Opts) {
     speechMsRef.current = 0;
     silenceMsRef.current = 0;
     setLevel(0);
-    if (listening) {
-      setListening(false);
-      cbRef.current.onListeningChange?.(false);
-    }
   };
 
-  const start = async () => {
-    if (listening) return;
+  const acquire = async (): Promise<boolean> => {
+    if (acquiringRef.current || streamRef.current) return true;
+    acquiringRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
@@ -132,17 +134,55 @@ export function useVoiceInput(opts: Opts) {
       source.connect(proc);
       proc.connect(zeroGain);
       zeroGain.connect(ctx.destination);
-
-      setListening(true);
-      cbRef.current.onListeningChange?.(true);
+      return true;
     } catch (err: any) {
       cbRef.current.onError?.(err?.message ?? 'Microphone access failed.');
-      stop();
+      teardownCapture();
+      return false;
+    } finally {
+      acquiringRef.current = false;
     }
   };
 
+  const stop = () => {
+    if (watcherRef.current) {
+      clearInterval(watcherRef.current);
+      watcherRef.current = null;
+    }
+    teardownCapture();
+    listeningRef.current = false;
+    setListening(false);
+    cbRef.current.onListeningChange?.(false);
+  };
+
+  const start = async () => {
+    if (listeningRef.current) return;
+    const ok = await acquire();
+    if (!ok) return;
+    listeningRef.current = true;
+    setListening(true);
+    cbRef.current.onListeningChange?.(true);
+
+    // While Raphael speaks, fully RELEASE the mic instead of just dropping
+    // frames: an open capture session makes Windows treat the app as a
+    // "communications" app and duck/mute its own playback, which made her
+    // voice inaudible whenever the mic was on. Frames were discarded during
+    // speech anyway (barge-in mute), so releasing loses nothing — and the
+    // mic re-acquires automatically the moment she finishes.
+    watcherRef.current = setInterval(() => {
+      const blocked = !!cbRef.current.getBlocked?.();
+      if (blocked && streamRef.current) {
+        teardownCapture();
+      } else if (!blocked && listeningRef.current && !streamRef.current && !acquiringRef.current) {
+        acquire().then((ok2) => {
+          if (!ok2) stop();
+        });
+      }
+    }, 300);
+  };
+
   const toggle = () => {
-    if (listening) stop();
+    if (listeningRef.current) stop();
     else start();
   };
 
