@@ -1,130 +1,498 @@
-/* Raphael Response System — anime-inspired classification overlay.
-   Typography layer (DOM) over a sibling energy-field canvas. Multiple
-   formations construct the system label differently per response. */
+/* =========================================================================
+   RAPHAEL — WORD-SYNCHRONIZED SYSTEM RESPONSE ENGINE STYLES
+   Multi-layer architecture: Background, Geometry, Classification,
+   Spoken Words, Semantic Emphasis, HUD Context, Sentence Transitions.
+   ========================================================================= */
 
 .rsx-root {
   position: absolute;
   inset: 0;
-  z-index: 15;
+  z-index: 25;
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: none;
   overflow: hidden;
+  user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
-.rsx-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
+.rsx-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 1;
+}
+
+/* Common Font Families */
 .rsx-glyphfont {
   font-family: 'Yu Mincho', 'Hiragino Mincho ProN', 'MS Mincho', 'Noto Serif JP', serif;
 }
-.rsx-serif { font-family: Georgia, 'Times New Roman', serif; }
+.rsx-serif {
+  font-family: Georgia, 'Times New Roman', serif;
+}
+.rsx-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* =========================================================================
+   LAYER 6: HUD CONTEXT & STATUS OVERLAYS
+   ========================================================================= */
+.rsx-hud-header {
+  position: absolute;
+  top: 16px;
+  left: 20px;
+  right: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 10;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: rgba(255, 255, 255, 0.7);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding-bottom: 8px;
+}
+
+.rsx-hud-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--rsx-accent, #49c7b4);
+  text-shadow: 0 0 10px var(--rsx-accent, #49c7b4);
+}
+
+.rsx-hud-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--rsx-accent, #49c7b4);
+  box-shadow: 0 0 10px var(--rsx-accent, #49c7b4);
+  animation: rsx-pulse 1.2s ease-in-out infinite;
+}
+
+.rsx-hud-sentence-counter {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 10px;
+}
+
+/* =========================================================================
+   LAYER 3: CLASSIFICATION PHASE STYLING
+   ========================================================================= */
+.rsx-classification-container {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.rsx-classification-container.exit {
+  opacity: 0;
+  transform: scale(1.15);
+  filter: blur(8px);
+}
+
+.rsx-kanji-wrap {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: center;
+}
 
 .rsx-kanji-char {
   display: inline-block;
-  color: var(--rsx-glyph);
-  font-weight: 600;
+  color: var(--rsx-glyph, #ffffff);
+  font-weight: 700;
   line-height: 1;
+  font-size: clamp(48px, 8vw, 84px);
   text-shadow:
-    1.2px 0 1px rgba(229, 102, 77, 0.5),
-    -1.2px 0 1px rgba(74, 199, 180, 0.5),
-    0 0 18px color-mix(in srgb, var(--rsx-accent) 45%, transparent);
-}
-.rsx-romaji {
-  color: var(--rsx-glyph);
-  letter-spacing: 0.42em;
-  text-indent: 0.42em;
-  opacity: 0.92;
-}
-.rsx-english {
-  color: color-mix(in srgb, var(--rsx-glyph) 70%, transparent);
-  letter-spacing: 0.56em;
-  text-indent: 0.56em;
+    1.5px 0 1px rgba(229, 102, 77, 0.5),
+    -1.5px 0 1px rgba(74, 199, 180, 0.5),
+    0 0 24px color-mix(in srgb, var(--rsx-accent) 60%, transparent);
+  animation: rsx-kanji-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* ---- shared layers ---- */
-.rsx-layer { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; text-align: center; }
-.rsx-sweep {
-  position: absolute; inset: 0; z-index: 3;
-  background: linear-gradient(105deg, transparent 38%, rgba(255,255,255,0.26) 50%, transparent 62%);
-  mix-blend-mode: screen;
-}
-.rsx-vlabel {
-  position: absolute; top: 50%; right: 7%; transform: translateY(-50%);
-  writing-mode: vertical-rl; letter-spacing: 0.25em;
-  color: color-mix(in srgb, var(--rsx-glyph) 55%, transparent); z-index: 2;
-  font-size: clamp(12px, 1.6vw, 17px);
+.rsx-classification-romaji {
+  margin-top: 14px;
+  font-size: clamp(14px, 1.8vw, 20px);
+  color: var(--rsx-glyph, #ffffff);
+  letter-spacing: 0.45em;
+  text-indent: 0.45em;
+  font-weight: 600;
+  text-shadow: 0 0 14px var(--rsx-accent, #49c7b4);
+  animation: rsx-slide-up 0.4s 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* ---- STACKED (diamond) ---- */
-.rsx-stacked { flex-direction: column; gap: 0.5em; }
-.rsx-diamond { position: relative; width: clamp(118px, 19vw, 184px); height: clamp(118px, 19vw, 184px); display: flex; align-items: center; justify-content: center; }
-.rsx-diamond::before {
-  content: ''; position: absolute; inset: 0; transform: rotate(45deg);
-  border: 1.5px solid var(--rsx-glyph); opacity: 0.9;
-  box-shadow: 1.5px 0 0 rgba(229,102,77,0.55), -1.5px 0 0 rgba(74,199,180,0.55);
+.rsx-classification-english {
+  margin-top: 6px;
+  font-size: clamp(10px, 1.2vw, 13px);
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.6em;
+  text-indent: 0.6em;
+  animation: rsx-slide-up 0.4s 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-.rsx-stacked .rsx-kanji-char { font-size: clamp(42px, 6.6vw, 70px); }
-.rsx-stacked .rsx-romaji { font-size: clamp(12px, 1.5vw, 15px); margin-top: 0.4em; }
-.rsx-stacked .rsx-english { font-size: clamp(9px, 1.1vw, 11px); margin-top: 0.25em; }
 
-/* ---- HORIZONTAL ---- */
-.rsx-horizontal { flex-direction: column; gap: 0.5em; }
-.rsx-horizontal .rsx-row { display: flex; gap: clamp(8px, 2vw, 26px); align-items: baseline; }
-.rsx-horizontal .rsx-kanji-char { font-size: clamp(40px, 6.2vw, 66px); }
-.rsx-horizontal .rsx-rule { height: 1.5px; width: 0; background: var(--rsx-glyph); opacity: 0.7; box-shadow: 0 0 10px color-mix(in srgb, var(--rsx-accent) 50%, transparent); }
-.rsx-horizontal .rsx-romaji { font-size: clamp(11px, 1.4vw, 14px); }
-.rsx-horizontal .rsx-english { font-size: clamp(9px, 1vw, 11px); }
+.rsx-speech-indicator {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--rsx-accent, #49c7b4);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
 
-/* ---- VERTICAL (tategaki) ---- */
-.rsx-vertical { flex-direction: row; gap: 0.7em; align-items: center; }
-.rsx-vertical .rsx-col { writing-mode: vertical-rl; display: flex; }
-.rsx-vertical .rsx-kanji-char { font-size: clamp(40px, 6vw, 64px); }
-.rsx-vertical .rsx-romaji { writing-mode: vertical-rl; letter-spacing: 0.3em; font-size: clamp(11px, 1.4vw, 14px); }
-.rsx-vertical .rsx-english { writing-mode: vertical-rl; letter-spacing: 0.4em; font-size: clamp(9px, 1vw, 11px); }
+/* =========================================================================
+   LAYER 4 & 5: SPOKEN RESPONSE VISUAL FORMATIONS
+   ========================================================================= */
+.rsx-response-stage {
+  position: relative;
+  z-index: 10;
+  width: 90%;
+  max-width: 1000px;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  transition: opacity 0.35s ease;
+}
 
-/* ---- RADIAL ---- */
-.rsx-radial { position: relative; width: clamp(220px, 34vw, 340px); height: clamp(220px, 34vw, 340px); }
-.rsx-radial .rsx-center { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; }
-.rsx-radial .rsx-kanji-char { font-size: clamp(46px, 7vw, 76px); }
-.rsx-radial .rsx-english { font-size: clamp(9px, 1.1vw, 11px); margin-top: 0.4em; }
-.rsx-radial .rsx-ring-letter { position: absolute; left: 50%; top: 50%; color: var(--rsx-glyph); font-family: Georgia, serif; font-size: clamp(11px, 1.4vw, 15px); opacity: 0.85; }
+.rsx-sentence-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(8px, 1.4vw, 18px) clamp(10px, 1.8vw, 24px);
+  padding: 24px;
+  transition: transform 0.4s ease, opacity 0.4s ease, filter 0.4s ease;
+}
 
-/* ---- ASSEMBLY ---- */
-.rsx-assembly { flex-direction: column; gap: 0.5em; }
-.rsx-assembly .rsx-row { display: flex; gap: clamp(6px, 1.6vw, 20px); }
-.rsx-assembly .rsx-kanji-char { font-size: clamp(42px, 6.4vw, 68px); }
-.rsx-assembly .rsx-romaji { font-size: clamp(11px, 1.4vw, 14px); }
-.rsx-assembly .rsx-english { font-size: clamp(9px, 1vw, 11px); }
+.rsx-sentence-container.transition-dissolve {
+  opacity: 0;
+  transform: scale(0.92);
+  filter: blur(8px);
+}
 
-/* ======================= entry animations ======================= */
-/* Characters animate in (constructed, not a plain fade). `--d` = per-glyph delay. */
-.rsx-enter .rsx-kanji-char { animation: rsx-char-in 0.5s cubic-bezier(0.18,0.9,0.2,1) both; animation-delay: var(--d, 0s); }
-.rsx-enter .rsx-romaji { animation: rsx-slide-up 0.45s 0.18s ease both; }
-.rsx-enter .rsx-english { animation: rsx-slide-up 0.45s 0.26s ease both; }
-.rsx-enter .rsx-diamond { animation: rsx-diamond-in 0.5s cubic-bezier(0.2,0.8,0.2,1) both; }
-.rsx-enter .rsx-sweep { animation: rsx-sweep-move 0.7s 0.12s ease-out both; }
-.rsx-enter .rsx-rule { animation: rsx-rule-grow 0.55s 0.2s cubic-bezier(0.2,0.8,0.2,1) both; }
-.rsx-enter .rsx-ring-letter { animation: rsx-ring-in 0.6s ease both; animation-delay: var(--d, 0s); }
+.rsx-sentence-container.transition-glitch {
+  animation: rsx-glitch 0.25s steps(2) 2 forwards;
+}
 
-/* assembly: converge from an offset to the final slot */
-.rsx-assembly.rsx-enter .rsx-kanji-char { animation: rsx-assemble 0.6s cubic-bezier(0.16,0.84,0.24,1) both; animation-delay: var(--d, 0s); }
+.rsx-sentence-container.transition-geometry-shift {
+  transform: translateY(-20px) scale(0.95);
+  opacity: 0;
+}
 
-.rsx-glitch .rsx-kanji-char { animation: rsx-glitch 0.3s steps(2,end) 2 !important; }
-.rsx-root.fading { animation: rsx-fade-out 0.5s ease forwards; }
+.rsx-sentence-container.transition-particle-burst {
+  opacity: 0;
+  transform: scale(1.12);
+  filter: blur(10px);
+}
 
-@keyframes rsx-char-in { 0% { opacity: 0; transform: scale(1.5); filter: blur(5px); } 55% { opacity: 1; } 100% { opacity: 1; transform: scale(1); filter: blur(0); } }
-@keyframes rsx-assemble { 0% { opacity: 0; transform: translate(var(--fx, 0), var(--fy, -40px)) scale(1.3); filter: blur(4px); } 60% { opacity: 1; } 100% { opacity: 1; transform: translate(0,0) scale(1); filter: blur(0); } }
-@keyframes rsx-slide-up { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
-@keyframes rsx-diamond-in { 0% { opacity: 0; transform: scale(0.78) rotate(-6deg); filter: blur(2px); } 60% { opacity: 1; } 100% { opacity: 1; transform: scale(1) rotate(0); filter: blur(0); } }
-@keyframes rsx-sweep-move { 0% { transform: translateX(-120%); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateX(120%); opacity: 0; } }
-@keyframes rsx-rule-grow { 0% { width: 0; opacity: 0; } 100% { width: clamp(90px, 16vw, 200px); opacity: 0.7; } }
-@keyframes rsx-ring-in { 0% { opacity: 0; } 100% { opacity: 0.85; } }
-@keyframes rsx-glitch { 0% { clip-path: inset(0 0 0 0); transform: translate(0); } 25% { clip-path: inset(18% 0 40% 0); transform: translate(-2px,0); } 50% { clip-path: inset(55% 0 8% 0); transform: translate(2px,0); } 75% { clip-path: inset(30% 0 30% 0); transform: translate(-1px,0); } 100% { clip-path: inset(0 0 0 0); transform: translate(0); } }
-@keyframes rsx-fade-out { 0% { opacity: 1; } 100% { opacity: 0; } }
+/* Word Container & Base Styling */
+.rsx-word-box {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
 
-@media (prefers-reduced-motion: reduce) {
-  .rsx-enter .rsx-kanji-char, .rsx-enter .rsx-romaji, .rsx-enter .rsx-english,
-  .rsx-enter .rsx-diamond, .rsx-enter .rsx-sweep, .rsx-enter .rsx-rule,
-  .rsx-enter .rsx-ring-letter, .rsx-assembly.rsx-enter .rsx-kanji-char,
-  .rsx-glitch .rsx-kanji-char { animation-duration: 0.2s !important; }
+.rsx-word-text {
+  font-size: clamp(20px, 2.8vw, 36px);
+  font-weight: 500;
+  line-height: 1.25;
+  color: #ffffff;
+  display: inline-block;
+  transition: all 0.2s ease;
+}
+
+/* Word Statuses: Pending, Active, Past */
+.rsx-word-box.pending {
+  opacity: 0.12;
+  transform: scale(0.92);
+  filter: blur(2px);
+}
+
+.rsx-word-box.active {
+  opacity: 1;
+  z-index: 5;
+}
+
+.rsx-word-box.past {
+  opacity: 0.75;
+  transform: scale(1);
+}
+
+/* =========================================================================
+   WORD FORMATIONS (Section 9 & 10)
+   ========================================================================= */
+
+/* 1. Horizontal formation */
+.formation-horizontal.active .rsx-word-text {
+  animation: rsx-word-horizontal 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  letter-spacing: 0.08em;
+}
+
+/* 2. Word Slide formation */
+.formation-word-slide.active .rsx-word-text {
+  animation: rsx-word-slide 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 3. Center Expand formation */
+.formation-center-expand.active .rsx-word-text {
+  animation: rsx-center-expand 0.4s cubic-bezier(0.12, 1.15, 0.3, 1) both;
+}
+
+/* 4. Center Contract formation */
+.formation-center-contract.active .rsx-word-text {
+  animation: rsx-center-contract 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 5. Assembly formation */
+.formation-assembly.active .rsx-word-text {
+  animation: rsx-assemble-word 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 6. Vertical formation */
+.formation-vertical {
+  writing-mode: vertical-rl;
+  border-left: 1px solid var(--rsx-accent, #49c7b4);
+  padding: 4px 6px;
+}
+.formation-vertical.active .rsx-word-text {
+  animation: rsx-vertical-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  letter-spacing: 0.15em;
+}
+
+/* 7. Radial formation */
+.formation-radial.active .rsx-word-text {
+  animation: rsx-radial-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: center center;
+}
+
+/* 8. Particle-to-Text formation */
+.formation-particle-to-text.active .rsx-word-text {
+  animation: rsx-particle-text 0.45s ease-out both;
+}
+
+/* 9. Glitch formation */
+.formation-glitch.active .rsx-word-text {
+  animation: rsx-glitch-active 0.3s steps(2) 2 both;
+}
+
+/* 10. Stacked / Diamond formation */
+.formation-stacked {
+  position: relative;
+}
+.formation-stacked::before {
+  content: '';
+  position: absolute;
+  inset: -2px -6px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  transform: skewX(-12deg);
+}
+.formation-stacked.active .rsx-word-text {
+  animation: rsx-stacked-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* =========================================================================
+   LAYER 5: SEMANTIC EMPHASIS (Section 11)
+   ========================================================================= */
+
+/* Critical / Action / Key terms */
+.emphasis-critical {
+  font-weight: 700;
+}
+.emphasis-critical .rsx-word-text {
+  font-size: clamp(26px, 3.8vw, 48px);
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-shadow:
+    0 0 12px var(--rsx-accent, #49c7b4),
+    0 0 28px var(--rsx-accent, #49c7b4),
+    0 0 45px rgba(255, 255, 255, 0.6);
+}
+
+.emphasis-critical.active {
+  background: color-mix(in srgb, var(--rsx-accent, #49c7b4) 18%, transparent);
+  border: 1px solid var(--rsx-accent, #49c7b4);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--rsx-accent, #49c7b4) 35%, transparent);
+}
+
+/* Cyberpunk brackets around critical words */
+.emphasis-critical::before,
+.emphasis-critical::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-color: var(--rsx-accent, #49c7b4);
+  border-style: solid;
+  opacity: 0.9;
+}
+.emphasis-critical::before {
+  top: -2px;
+  left: -2px;
+  border-width: 2px 0 0 2px;
+}
+.emphasis-critical::after {
+  bottom: -2px;
+  right: -2px;
+  border-width: 0 2px 2px 0;
+}
+
+/* Entity / Code terms */
+.emphasis-entity .rsx-word-text {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: clamp(22px, 3.2vw, 40px);
+  font-weight: 600;
+  color: #79ffe1;
+  text-shadow: 0 0 16px rgba(121, 255, 225, 0.6);
+}
+
+/* Keyword terms */
+.emphasis-keyword .rsx-word-text {
+  font-size: clamp(22px, 3.0vw, 38px);
+  font-weight: 600;
+  color: #ffffff;
+  text-shadow: 0 0 16px var(--rsx-accent2, #3f7fd6);
+}
+
+/* Connector words (smaller, quieter) */
+.emphasis-connector .rsx-word-text {
+  font-size: clamp(16px, 2.0vw, 24px);
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 400;
+}
+
+/* =========================================================================
+   KEYFRAME ANIMATIONS
+   ========================================================================= */
+@keyframes rsx-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.4); opacity: 1; }
+}
+
+@keyframes rsx-kanji-in {
+  0% { opacity: 0; transform: scale(1.6); filter: blur(6px); }
+  60% { opacity: 1; }
+  100% { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+
+@keyframes rsx-slide-up {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes rsx-word-horizontal {
+  0% { opacity: 0; transform: scaleX(0.7); filter: blur(4px); }
+  100% { opacity: 1; transform: scaleX(1); filter: blur(0); }
+}
+
+@keyframes rsx-word-slide {
+  0% { opacity: 0; transform: translateX(-30px); filter: blur(4px); }
+  100% { opacity: 1; transform: translateX(0); filter: blur(0); }
+}
+
+@keyframes rsx-center-expand {
+  0% { opacity: 0; transform: scale(0.3); filter: blur(8px); }
+  60% { transform: scale(1.22); filter: blur(0); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes rsx-center-contract {
+  0% { opacity: 0; transform: scale(2.0); filter: blur(8px); }
+  100% { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+
+@keyframes rsx-assemble-word {
+  0% { opacity: 0; transform: translateY(-24px) rotate(-4deg); filter: blur(5px); }
+  100% { opacity: 1; transform: translateY(0) rotate(0); filter: blur(0); }
+}
+
+@keyframes rsx-vertical-in {
+  0% { opacity: 0; transform: translateY(20px); filter: blur(4px); }
+  100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes rsx-radial-in {
+  0% { opacity: 0; transform: scale(0.4) rotate(15deg); filter: blur(6px); }
+  100% { opacity: 1; transform: scale(1) rotate(0); filter: blur(0); }
+}
+
+@keyframes rsx-particle-text {
+  0% { opacity: 0; transform: scale(1.1); filter: blur(10px) contrast(200%); }
+  50% { opacity: 0.9; filter: blur(3px); }
+  100% { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+
+@keyframes rsx-glitch-active {
+  0% { transform: translate(0); clip-path: inset(0 0 0 0); }
+  25% { transform: translate(-3px, 1px); clip-path: inset(20% 0 30% 0); }
+  50% { transform: translate(3px, -1px); clip-path: inset(50% 0 10% 0); }
+  75% { transform: translate(-2px, -1px); clip-path: inset(10% 0 50% 0); }
+  100% { transform: translate(0); clip-path: inset(0 0 0 0); }
+}
+
+@keyframes rsx-stacked-in {
+  0% { opacity: 0; transform: skewX(-12deg) scale(0.8); }
+  100% { opacity: 1; transform: skewX(0) scale(1); }
+}
+
+@keyframes rsx-glitch {
+  0% { clip-path: inset(0 0 0 0); transform: translate(0); }
+  25% { clip-path: inset(18% 0 40% 0); transform: translate(-3px, 1px); }
+  50% { clip-path: inset(55% 0 8% 0); transform: translate(3px, -1px); }
+  75% { clip-path: inset(30% 0 30% 0); transform: translate(-2px, 0); }
+  100% { clip-path: inset(0 0 0 0); transform: translate(0); }
+}
+
+/* English Subtitle bar when animating Japanese text */
+.rsx-hud-subtitle {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 86%;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(3, 6, 12, 0.82);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.75), 0 0 16px color-mix(in srgb, var(--rsx-accent, #49c7b4) 25%, transparent);
+  border-radius: 20px;
+  padding: 6px 18px;
+  font-size: clamp(12px, 1.4vw, 15px);
+  color: #ffffff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  animation: rsx-slide-up 0.4s ease both;
+}
+
+.rsx-hud-subtitle-tag {
+  font-size: 10px;
+  color: var(--rsx-accent, #49c7b4);
+  letter-spacing: 0.16em;
+  font-weight: 700;
+  white-space: nowrap;
 }

@@ -11,7 +11,6 @@ import { RaphaelVisualizerVideo as RaphaelVisualizer } from './visualizer/Raphae
 import { DebugPanel } from './visualizer/DebugPanel';
 import { FloatingVisualizer } from './visualizer/FloatingVisualizer';
 import { useAudioReactive } from './visualizer/useAudioReactive';
-import { RaphaelSubtitle } from './visualizer/RaphaelSubtitle';
 import { ResponseSystem } from './visualizer/ResponseSystem';
 import { useResponseOrchestrator } from './response/useResponseOrchestrator';
 import { buildSystemResponse } from './response/buildSystemResponse';
@@ -69,9 +68,9 @@ function MainApp() {
   uiSettingsRef.current = uiSettings;
   const [showSettings, setShowSettings] = useState(false);
 
-  // RaphaelResponseOrchestrator (§14) — the one coordinator for every
-  // response's animation + voice + text. Owns speaking + subtitle state.
-  const orchestrator = useResponseOrchestrator(audioElRef.current);
+  // RaphaelResponseOrchestrator — the one coordinator for every
+  // response's animation + voice + text. Owns speaking + timeline state.
+  const orchestrator = useResponseOrchestrator();
   const isSpeaking = orchestrator.isSpeaking;
 
   // --- Voice input (optional; typing stays primary) ---------------------
@@ -113,10 +112,9 @@ function MainApp() {
   );
 
   /**
-   * The single entry point for every Raphael reply (§1 pipeline, §21): build
+   * The single entry point for every Raphael reply: build
    * the structured SystemResponse, then hand it to the orchestrator which
-   * coordinates the animation + voice + text. No caller wires those three
-   * layers by hand anymore.
+   * coordinates the animation + voice + text.
    */
   function dispatchResponse(message: string, signals: { isError: boolean; needsPermission: boolean; hadAction: boolean }) {
     if (!message || !message.trim()) return;
@@ -133,7 +131,16 @@ function MainApp() {
       animationMode: s.animationMode,
       scope: s.systemResponseScope
     });
-    orchestrator.handle(r);
+    setActivity((prev) => [
+      ...prev,
+      {
+        id: `resp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        timestamp: new Date().toISOString(),
+        message: `[${r.systemLabel.romanized}] ${message}`,
+        level: r.responseType === 'KOKU' ? 'warn' : 'info'
+      }
+    ]);
+    orchestrator.handle(r, voice);
   }
   // Latest dispatcher, callable from the once-registered IPC listeners.
   const dispatchRef = useRef(dispatchResponse);
@@ -237,16 +244,24 @@ function MainApp() {
     setStatus('Thinking...');
     setRunning(true);
     setPaused(false);
-    const { taskId: id, plan } = await window.raphael.submitCommand(text);
-    setTaskId(id);
-    setSummary(plan.summary);
-    summaryRef.current = plan.summary;
-    if (plan.steps.length === 0) {
+    try {
+      const { taskId: id, plan } = await window.raphael.submitCommand(text);
+      setTaskId(id);
+      setSummary(plan.summary);
+      summaryRef.current = plan.summary;
+      if (plan.steps.length === 0) {
+        setRunning(false);
+        setStatus(plan.summary);
+        setCompletedAt(performance.now());
+        // Conversational reply (no action) → 報告 REPORT (animation + voice + text).
+        dispatchResponse(plan.summary, { isError: false, needsPermission: false, hadAction: false });
+      }
+    } catch (err: any) {
       setRunning(false);
-      setStatus(plan.summary);
-      setCompletedAt(performance.now());
-      // Conversational reply (no action) → 報告 REPORT (animation + voice + text).
-      dispatchResponse(plan.summary, { isError: false, needsPermission: false, hadAction: false });
+      setTaskError(true);
+      const msg = err?.message || 'Command failed, My Liege.';
+      setStatus(msg);
+      dispatchResponse(msg, { isError: true, needsPermission: false, hadAction: false });
     }
   }
 
@@ -648,11 +663,24 @@ function MainApp() {
                 onClose={() => setShowDebug(false)}
               />
             )}
-            <ResponseSystem trigger={orchestrator.responseTrigger} response={orchestrator.response} onRevealStart={orchestrator.onRevealStart} />
-            <div className="pointer-events-none absolute inset-x-0 bottom-5 z-20 flex justify-center px-6">
-              <RaphaelSubtitle text={orchestrator.subtitleText} nonce={orchestrator.subtitleNonce} />
-            </div>
-            {visualizerMode === "embedded" && !orchestrator.subtitleText && (
+            <ResponseSystem
+              timeline={orchestrator.timeline}
+              currentTimeSec={orchestrator.currentTimeSec}
+              isPlaying={orchestrator.isSpeaking}
+              active={orchestrator.isActive}
+            />
+            {orchestrator.ttsNotice && (
+              <div className="pointer-events-none absolute top-14 left-1/2 -translate-x-1/2 z-30 rounded border border-raphael-danger/60 bg-black/85 px-3 py-1 font-mono text-[11px] text-raphael-danger tracking-widest shadow-lg">
+                {orchestrator.ttsNotice}
+              </div>
+            )}
+            {!orchestrator.isActive && orchestrator.transcriptText && visualizerMode === 'embedded' && (
+              <div className="pointer-events-none absolute bottom-3 left-4 right-4 text-center text-xs text-raphael-text/90 font-medium bg-black/60 backdrop-blur-sm py-1.5 px-3 rounded border border-raphael-border/40">
+                <span className="text-raphael-accent font-mono mr-2">RAPHAEL:</span>
+                {orchestrator.transcriptText}
+              </div>
+            )}
+            {visualizerMode === "embedded" && !orchestrator.isActive && !orchestrator.transcriptText && (
               <div className="pointer-events-none absolute bottom-3 left-3 right-3 text-center text-xs text-raphael-textMuted/80">
                 Try: <span className="text-raphael-text">"Create a folder called Projects"</span> or{' '}
                 <span className="text-raphael-text">"What's my system?"</span>

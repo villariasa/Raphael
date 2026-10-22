@@ -53,6 +53,12 @@ export interface SpeechProgress {
   playing: boolean;
 }
 
+export function getSpeechElapsedSec(): { elapsed: number; duration: number; playing: boolean } {
+  if (!speechClock) return { elapsed: 0, duration: 0, playing: false };
+  const elapsed = Math.max(0, nowInBase(speechClock.base) - speechClock.start);
+  return { elapsed, duration: speechClock.duration, playing: speechClock.playing };
+}
+
 /** Read the live playback position. Drives subtitle reveal each frame. */
 export function getSpeechProgress(): SpeechProgress {
   if (!speechClock) return { progress: 0, playing: false };
@@ -91,12 +97,24 @@ export async function resumeAudioContext(): Promise<void> {
   }
 }
 
-/**
- * Play synthesized speech WAV directly through the Web Audio graph.
- * Ensures the AudioContext is running, connects to the analyser (driving
- * the visualizer in real time), and outputs crystal-clear sound to the speakers.
- */
-export async function playSpeechWav(base64: string, onEnded?: () => void): Promise<boolean> {
+export async function decodeAudioBytes(base64: string): Promise<AudioBuffer | null> {
+  try {
+    const graph = getSharedAudioGraph();
+    if (!graph) return null;
+    const binary = atob(base64);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return await graph.ctx.decodeAudioData(bytes.buffer.slice(0));
+  } catch (err) {
+    console.warn('[decodeAudioBytes] Failed to decode audio bytes:', err);
+    return null;
+  }
+}
+
+export async function playDecodedBuffer(audioBuffer: AudioBuffer, onEnded?: () => void): Promise<boolean> {
   try {
     const graph = getSharedAudioGraph();
     if (!graph) return false;
@@ -113,15 +131,6 @@ export async function playSpeechWav(base64: string, onEnded?: () => void): Promi
       currentBufferSource = null;
     }
 
-    // Convert base64 to ArrayBuffer
-    const binary = atob(base64);
-    const len = binary.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-
-    const audioBuffer = await graph.ctx.decodeAudioData(bytes.buffer.slice(0));
     const sourceNode = graph.ctx.createBufferSource();
     sourceNode.buffer = audioBuffer;
     sourceNode.connect(graph.analyser);
@@ -136,13 +145,23 @@ export async function playSpeechWav(base64: string, onEnded?: () => void): Promi
     };
 
     sourceNode.start(0);
-    // Drive subtitles off the real decoded duration on the audio clock.
     markSpeechStart(audioBuffer.duration, 'ctx');
     return true;
   } catch (err) {
-    console.warn('[playSpeechWav] Direct Web Audio playback failed:', err);
+    console.warn('[playDecodedBuffer] Direct playback failed:', err);
     return false;
   }
+}
+
+/**
+ * Play synthesized speech WAV directly through the Web Audio graph.
+ * Ensures the AudioContext is running, connects to the analyser (driving
+ * the visualizer in real time), and outputs crystal-clear sound to the speakers.
+ */
+export async function playSpeechWav(base64: string, onEnded?: () => void): Promise<boolean> {
+  const audioBuffer = await decodeAudioBytes(base64);
+  if (!audioBuffer) return false;
+  return playDecodedBuffer(audioBuffer, onEnded);
 }
 
 export function stopSpeech(): void {

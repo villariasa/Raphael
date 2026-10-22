@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import { IPC } from '../shared/ipc';
-import type { PermissionDecision } from '../shared/ipc';
+import type { PermissionDecision, VoiceOption } from '../shared/ipc';
 import { detectEnvironment } from './core/environment/detector';
 import { OllamaProvider } from './core/ai/ollama';
 import { OllamaManager } from './core/ai/ollamaManager';
@@ -249,13 +249,21 @@ app.whenReady().then(() => {
     activity.clear();
   });
 
-  ipcMain.handle(IPC.speak, async (_evt, text: string) => {
-    const result = await ttsManager.synthesizeToWav(text, settingsStore.getVoice());
+  ipcMain.handle(IPC.speak, async (_evt, text: string, voiceOverride?: VoiceOption) => {
+    const voice = voiceOverride || settingsStore.getVoice();
+    const result = await ttsManager.synthesizeToWav(text, voice);
     if (!result.ok) {
       activity.append(`TTS unavailable: ${result.reason}`, 'warn');
       return { ok: false, reason: result.reason };
     }
-    return { ok: true, audioBase64: result.buffer.toString('base64'), mime: result.mime };
+    return {
+      ok: true,
+      audioBase64: result.buffer.toString('base64'),
+      mime: result.mime,
+      timestamps: result.timestamps,
+      spokenText: result.spokenText,
+      japaneseText: result.japaneseText
+    };
   });
 
   ipcMain.handle(IPC.getVoice, async () => settingsStore.getVoice());

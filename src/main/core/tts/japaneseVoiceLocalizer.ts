@@ -122,10 +122,36 @@ export async function localizeToJapaneseLady(text: string): Promise<string> {
     return '我が君、直接その操作を行うことはできません。別の指示をお願いできますか？';
   }
 
-  // 8. General conversational fallback with quick Ollama translation (2.5s timeout)
+  // 8. Technical and System Actions
+  if (/compatible with your system/i.test(lower) || (/installer/i.test(lower) && /found/i.test(lower))) {
+    return '我が君、インストーラーを検出いたしました。システムとの互換性も確認済みです。';
+  }
+  if (/administrator privileges/i.test(lower) || /admin/i.test(lower)) {
+    return '我が君、この処理の実行には管理者権限が必要です。';
+  }
+  if (/missing/i.test(lower) && (/parameter/i.test(lower) || /farmer_id/i.test(lower) || /error/i.test(lower))) {
+    return '我が君、エラーの原因は必要なパラメータの欠落によるものです。';
+  }
+  if (/preparing the installation|preparing/i.test(lower) && /install/i.test(lower)) {
+    return '我が君、インストールの準備を整えております。';
+  }
+  if (/installed successfully|installation.*completed/i.test(lower)) {
+    return '我が君、アプリケーションのインストールは正常に完了いたしました！';
+  }
+  if (/verified.*successfully|verified/i.test(lower)) {
+    return '我が君、検証は正常に完了いたしました。';
+  }
+  if (/yes\.?$/i.test(lower)) {
+    return 'はい、我が君。';
+  }
+  if (/error\.?$/i.test(lower) || /^an error occurred/i.test(lower)) {
+    return '我が君、エラーを検知いたしました。';
+  }
+
+  // 9. General conversational fallback with Ollama translation (6s timeout)
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2500);
+    const timeout = setTimeout(() => controller.abort(), 6000);
     const res = await fetch('http://127.0.0.1:11434/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -137,10 +163,10 @@ export async function localizeToJapaneseLady(text: string): Promise<string> {
             role: 'system',
             content: 'Translate the English message into natural, concise Japanese spoken by a loyal cool anime girl assistant addressing her user as 我が君 (My Liege). Output ONLY the Japanese sentence, no English, no markdown, no quotes.'
           },
-          { role: 'user', content: clean.slice(0, 200) }
+          { role: 'user', content: clean.slice(0, 300) }
         ],
         stream: false,
-        options: { num_predict: 50, temperature: 0.2 }
+        options: { num_predict: 60, temperature: 0.2 }
       })
     });
     clearTimeout(timeout);
@@ -154,5 +180,5 @@ export async function localizeToJapaneseLady(text: string): Promise<string> {
   }
 
   // In-character fallback for arbitrary long English responses
-  return '我が君、画面の回答をご確認ください。';
+  return '我が君、ご報告の回答を画面に展開いたしました。ご確認ください。';
 }

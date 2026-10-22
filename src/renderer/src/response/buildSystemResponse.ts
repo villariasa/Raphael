@@ -43,12 +43,15 @@ export function buildSystemResponse(input: BuildInput): SystemResponse {
   const scopeAllows = input.scope === 'always' || type === 'KOKU' || type === 'KAITO';
   const animationEnabled = input.animationMode !== 'off' && scopeAllows;
 
+  const spokenScript = `${label.spokenIntro} ${input.message.trim()}`;
+
   return {
     responseId: newId(),
     responseType: type,
     systemLabel: label,
     message: input.message,
-    voice: { enabled: input.voiceEnabled, text: input.message, priority },
+    spokenScript,
+    voice: { enabled: input.voiceEnabled, text: spokenScript, priority },
     animation: {
       enabled: animationEnabled,
       intensity: input.animationMode === 'reduced' ? 'low' : intensity,

@@ -66,8 +66,21 @@ export type RaphaelState =
   | 'completed'
   | 'error';
 
+export interface SpeechTimestamp {
+  text: string;
+  start: number; // in seconds
+  end: number;   // in seconds
+}
+
 export type SpeakResult =
-  | { ok: true; audioBase64: string; mime: string }
+  | {
+      ok: true;
+      audioBase64: string;
+      mime: string;
+      timestamps?: SpeechTimestamp[];
+      spokenText?: string;
+      japaneseText?: string;
+    }
   | { ok: false; reason: string };
 
 /**
@@ -150,7 +163,7 @@ export interface RaphaelApi {
   resumeTask(taskId: string): Promise<void>;
   getActivity(): Promise<ActivityEntry[]>;
   clearActivity(): Promise<void>;
-  speak(text: string): Promise<SpeakResult>;
+  speak(text: string, voice?: VoiceOption): Promise<SpeakResult>;
   openFloatingVisualizer(): Promise<void>;
   closeFloatingVisualizer(): Promise<void>;
   getAlwaysAllowAll(): Promise<boolean>;
