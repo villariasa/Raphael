@@ -65,6 +65,7 @@ export const ACTION_RISK: Record<ActionKind, RiskLevel> = {
 /** Action kinds the executor actually implements in this phase of development. */
 export const IMPLEMENTED_ACTION_KINDS: ActionKind[] = [
   'read_system_info',
+  'list_installed_applications',
   'create_folder',
   'open_application',
   'close_application',
@@ -76,6 +77,7 @@ export const IMPLEMENTED_ACTION_KINDS: ActionKind[] = [
   'type_text',
   'scroll',
   'create_file',
+  'install_application',
   // execute_command stays implemented for the explicit, literally-typed
   // "run: <command>" path (planner.ts RUN_COMMAND_PATTERNS) — HIGH risk,
   // permission-gated. It is deliberately NOT offered to the LLM's

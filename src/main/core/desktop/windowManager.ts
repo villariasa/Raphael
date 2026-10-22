@@ -128,7 +128,17 @@ export async function controlWindow(
 
   const script = `
 ${WIN32_PREAMBLE}
-$p = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and ($_.ProcessName -like '*${proc}*' -or $_.MainWindowTitle -like '*${proc}*') } | Select-Object -First 1;
+$isTargetActive = ('${proc}'.ToLower() -in @('it', 'active', 'current', 'window', 'this', ''));
+if ($isTargetActive) {
+  Add-Type @"
+using System; using System.Runtime.InteropServices;
+public class RaphFg { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }
+"@;
+  $fgh = [RaphFg]::GetForegroundWindow();
+  $p = Get-Process | Where-Object { $_.MainWindowHandle -eq $fgh } | Select-Object -First 1;
+} else {
+  $p = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and ($_.ProcessName -like '*${proc}*' -or $_.MainWindowTitle -like '*${proc}*') } | Select-Object -First 1;
+}
 if ($null -eq $p) { Write-Output (ConvertTo-Json @{ ok = $false; reason = 'not_found' }); exit 0 }
 $before = Get-WinState $p;
 $h = $p.MainWindowHandle;

@@ -11,12 +11,16 @@ export function hasJapaneseCharacters(text: string): boolean {
   return /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(text);
 }
 
+const translationCache = new Map<string, string>();
+
 export async function localizeToJapaneseLady(text: string): Promise<string> {
   const clean = text.trim();
   if (!clean) return clean;
   if (hasJapaneseCharacters(clean)) return clean;
 
   const lower = clean.toLowerCase();
+  const cached = translationCache.get(lower);
+  if (cached) return cached;
 
   // 1. Task Completion & Core Status
   if (/^handled[,\s]+my liege/i.test(lower) || /^done\.?$/i.test(lower) || /^handled\.?$/i.test(lower)) {
@@ -49,15 +53,24 @@ export async function localizeToJapaneseLady(text: string): Promise<string> {
     return total ? `ステップ${cur}、全${total}工程を実行中。` : `ステップ${cur}を実行中。`;
   }
 
-  // 3. Application Operations
+  // 3. Application Operations & Window Organizing
   if (/visual studio code|vs\s*code/i.test(lower) && /open|launch|start/i.test(lower)) {
     return 'VS Codeを起動いたします、我が君。';
   }
-  const openAppMatch = clean.match(/^(?:open|launch|start|opening|launching)\s+(?:application\s+|app\s+)?["“]?([^"”\n\.,]+?)["”]?[\.,]?(?:\s+(?:my\s+liege|please))?[\.!]?$/i);
+  if (/fullscreen|maximi/i.test(lower)) {
+    return '我が君、ウィンドウを全画面に配置いたしました。';
+  }
+  if (/right\s*screen|to\s*the\s*right|on\s*the\s*right/i.test(lower)) {
+    return '我が君、ウィンドウを画面右側に整列いたしました。';
+  }
+  if (/left\s*screen|to\s*the\s*left|on\s*the\s*left/i.test(lower)) {
+    return '我が君、ウィンドウを画面左側に整列いたしました。';
+  }
+  const openAppMatch = clean.match(/^(?:search\s+(?:and\s+)?|open|launch|start|opening|launching)\s+(?:application\s+|app\s+)?["“]?([^"”\n\.,]+?)["”]?[\.,]?(?:\s+(?:my\s+liege|please))?[\.!]?$/i);
   if (openAppMatch) {
     const app = openAppMatch[1].trim();
     if (!/folder|file|browser/i.test(app)) {
-      return `${app}を起動いたします、我が君。`;
+      return `${app}を検索して起動いたします、我が君。`;
     }
   }
 
@@ -97,6 +110,18 @@ export async function localizeToJapaneseLady(text: string): Promise<string> {
   }
 
   // 7. Core Raphael Conversational Lines
+  if (/operating at peak efficiency/i.test(lower)) {
+    return '我が君、最高効率にて稼働中です。次のご命令をどうぞ。';
+  }
+  if (/always an honor to serve you/i.test(lower)) {
+    return '我が君にお仕えでき、常に光栄に存じます。';
+  }
+  if (/i am here and at your service/i.test(lower)) {
+    return '我が君、お呼びでしょうか。本日は何を成し遂げましょうか？';
+  }
+  if (/voice input is still preparing|still preparing its speech model/i.test(lower)) {
+    return '我が君、音声認識モデルを準備中ですので、少々お待ちください。';
+  }
   if (/voice synthesis is active/i.test(lower)) {
     return 'ラファエルの音声合成システムは正常に稼働中です。いつでも命令をどうぞ。';
   }
@@ -148,32 +173,35 @@ export async function localizeToJapaneseLady(text: string): Promise<string> {
     return '我が君、エラーを検知いたしました。';
   }
 
-  // 9. General conversational fallback with Ollama translation (6s timeout)
+  // 9. General conversational translation via Ollama (up to 6.0s timeout with model fallback)
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
+    const targetModel = process.env.RAPHAEL_MODEL || 'llama3.2';
     const res = await fetch('http://127.0.0.1:11434/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        model: 'llama3.2:latest',
+        model: targetModel,
         messages: [
           {
             role: 'system',
-            content: 'Translate the English message into natural, concise Japanese spoken by a loyal cool anime girl assistant addressing her user as 我が君 (My Liege). Output ONLY the Japanese sentence, no English, no markdown, no quotes.'
+            content: 'Translate the English message into authentic, natural Japanese text using Kanji, Hiragana, and Katakana (日本語/漢字・ひらがなで出力). Address the user as 我が君 (My Liege). Do NOT output Romaji. Output ONLY the Japanese text, no English, no markdown, no quotes.'
           },
           { role: 'user', content: clean.slice(0, 300) }
         ],
         stream: false,
-        options: { num_predict: 60, temperature: 0.2 }
+        options: { num_predict: 80, temperature: 0.2 }
       })
     });
     clearTimeout(timeout);
     const data = (await res.json()) as any;
     const translated = data?.message?.content?.trim();
     if (translated && hasJapaneseCharacters(translated)) {
-      return translated.replace(/^["'「]+|["'」]+$/g, '');
+      const result = translated.replace(/^["'「]+|["'」]+$/g, '');
+      translationCache.set(lower, result);
+      return result;
     }
   } catch {
     // If Ollama is offline or times out, gracefully use standard in-character speech

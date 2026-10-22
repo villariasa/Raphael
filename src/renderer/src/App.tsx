@@ -79,18 +79,24 @@ function MainApp() {
   const [sttStage, setSttStage] = useState<string>('idle');
   const isSpeakingRef = useRef(false);
   isSpeakingRef.current = isSpeaking;
+  const dispatchRef = useRef<(message: string, signals: { isError: boolean; needsPermission: boolean; hadAction: boolean }) => void>(() => {});
 
   const voiceInput = useVoiceInput({
     onUtterance: async (wavBase64) => {
       const result = await window.raphael.transcribe?.(wavBase64);
       if (!result || !result.ok) {
-        if (result && !result.ok) setStatus(result.reason);
+        const reason = result?.reason || "Voice input is still preparing its speech model, My Liege.";
+        setStatus(reason);
+        dispatchRef.current(reason, { isError: false, needsPermission: false, hadAction: false });
         return;
       }
       setCommandText(result.text);
       runCommand(result.text);
     },
-    onError: (msg) => setStatus(`Mic: ${msg}`),
+    onError: (msg) => {
+      setStatus(`Mic: ${msg}`);
+      dispatchRef.current(`Microphone notice: ${msg}`, { isError: true, needsPermission: false, hadAction: false });
+    },
     // Barge-in: ignore the mic while Raphael is speaking so she doesn't hear herself.
     getBlocked: () => isSpeakingRef.current
   });
@@ -143,7 +149,6 @@ function MainApp() {
     orchestrator.handle(r, voice);
   }
   // Latest dispatcher, callable from the once-registered IPC listeners.
-  const dispatchRef = useRef(dispatchResponse);
   dispatchRef.current = dispatchResponse;
 
   useEffect(() => {
@@ -700,13 +705,7 @@ function MainApp() {
                 {orchestrator.ttsNotice}
               </div>
             )}
-            {!orchestrator.isActive && orchestrator.transcriptText && visualizerMode === 'embedded' && (
-              <div className="pointer-events-none absolute bottom-3 left-4 right-4 text-center text-xs text-raphael-text/90 font-medium bg-black/60 backdrop-blur-sm py-1.5 px-3 rounded border border-raphael-border/40">
-                <span className="text-raphael-accent font-mono mr-2">RAPHAEL:</span>
-                {orchestrator.transcriptText}
-              </div>
-            )}
-            {visualizerMode === "embedded" && !orchestrator.isActive && !orchestrator.transcriptText && (
+            {visualizerMode === "embedded" && !orchestrator.isActive && (
               <div className="pointer-events-none absolute bottom-3 left-3 right-3 text-center text-xs text-raphael-textMuted/80">
                 Try: <span className="text-raphael-text">"Create a folder called Projects"</span> or{' '}
                 <span className="text-raphael-text">"What's my system?"</span>

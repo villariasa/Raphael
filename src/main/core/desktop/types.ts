@@ -45,7 +45,9 @@ export interface WindowActionResult {
 
 /** Drives the visible Raphael cursor overlay (§3). Implemented by CursorOverlay. */
 export interface CursorController {
-  show(state: import('../../../shared/ipc').CursorState): void;
-  setState(state: import('../../../shared/ipc').CursorState): void;
+  show(state?: import('../../../shared/ipc').CursorState, label?: string): void;
+  setState(state: import('../../../shared/ipc').CursorState, label?: string): void;
   hide(): void;
+  animateTo?(x: number, y: number, durationMs?: number, state?: import('../../../shared/ipc').CursorState, label?: string): Promise<void>;
+  simulateHumanAction?(type: 'search_and_open' | 'organize_window' | 'install', appName?: string, position?: string): Promise<void>;
 }

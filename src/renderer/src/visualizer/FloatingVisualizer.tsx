@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { PermissionRequest, TaskStatusUpdate } from '../../../shared/ipc';
+import type { PermissionRequest, TaskStatusUpdate, PermissionDecision } from '../../../shared/ipc';
 import { RaphaelVisualizerVideo as RaphaelVisualizer } from './RaphaelVisualizerVideo';
+import { ResponseSystem } from './ResponseSystem';
+import { useResponseOrchestrator } from '../response/useResponseOrchestrator';
+import { buildSystemResponse } from '../response/buildSystemResponse';
 import { deriveRaphaelState } from './deriveState';
 import { DEFAULT_TUNABLES, SILENT_AUDIO } from './types';
 
@@ -34,6 +37,22 @@ export function FloatingVisualizer() {
   const [reply, setReply] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  const orchestrator = useResponseOrchestrator();
+
+  function triggerAnimatedReply(message: string, isError = false, hadAction = false) {
+    if (!message || !message.trim()) return;
+    const r = buildSystemResponse({
+      message,
+      signals: { isError, needsPermission: false, hadAction },
+      width: 380,
+      height: 380,
+      voiceEnabled: true,
+      animationMode: 'full',
+      scope: 'always'
+    });
+    orchestrator.handle(r, 'ja-JP-female');
+  }
+
   useEffect(() => {
     if (!window.raphael) return;
     const offPermission = window.raphael.onPermissionRequest?.(setPermissionRequest);
@@ -43,7 +62,12 @@ export function FloatingVisualizer() {
       if (update.done) {
         setRunning(false);
         setPermissionRequest(null);
-        if (!update.error) setCompletedAt(performance.now());
+        if (!update.error) {
+          setCompletedAt(performance.now());
+          triggerAnimatedReply(update.status || 'Done, My Liege.', false, true);
+        } else {
+          triggerAnimatedReply(update.status || 'Action failed, My Liege.', true, true);
+        }
       } else {
         setRunning(true);
       }
@@ -63,7 +87,7 @@ export function FloatingVisualizer() {
     running,
     paused: false,
     hasSteps: !!taskStatus?.totalSteps,
-    isSpeaking: false,
+    isSpeaking: orchestrator.isSpeaking,
     isListening: false,
     debugOverride: null
   });
@@ -78,14 +102,17 @@ export function FloatingVisualizer() {
     try {
       const { plan } = await window.raphael.submitCommand(text);
       setReply(plan.summary);
+      triggerAnimatedReply(plan.summary, false, plan.steps.length > 0);
       if (plan.steps.length === 0) setRunning(false);
     } catch {
-      setReply('My Liege, that request failed to reach me.');
+      const errMsg = 'My Liege, that request failed to reach me.';
+      setReply(errMsg);
+      triggerAnimatedReply(errMsg, true, false);
       setRunning(false);
     }
   }
 
-  async function decide(decision: 'allow_once' | 'deny') {
+  async function decide(decision: PermissionDecision) {
     if (!permissionRequest || !window.raphael) return;
     await window.raphael.respondToPermission(permissionRequest.requestId, decision);
     setPermissionRequest(null);
@@ -121,9 +148,15 @@ export function FloatingVisualizer() {
         </div>
       </div>
 
-      {/* Visualizer */}
-      <div className="relative min-h-0 flex-1">
+      {/* Visualizer & Animated Reply */}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
         <RaphaelVisualizer state={state} audio={SILENT_AUDIO} tunables={DEFAULT_TUNABLES} completedAt={completedAt} />
+        <ResponseSystem
+          timeline={orchestrator.timeline}
+          currentTimeSec={orchestrator.currentTimeSec}
+          isPlaying={orchestrator.isSpeaking}
+          active={orchestrator.isActive}
+        />
       </div>
 
       {/* Status / reply line */}
@@ -146,6 +179,9 @@ export function FloatingVisualizer() {
           <div className="flex gap-1.5">
             <button onClick={() => decide('allow_once')} className="flex-1 rounded bg-raphael-ok/80 px-2 py-1 text-[10px] font-medium text-white hover:bg-raphael-ok">
               Allow once
+            </button>
+            <button onClick={() => decide('always_allow')} className="flex-1 rounded border border-white/20 bg-white/10 px-2 py-1 text-[10px] font-medium text-white hover:bg-white/20">
+              Always allow
             </button>
             <button onClick={() => decide('deny')} className="flex-1 rounded bg-raphael-danger/80 px-2 py-1 text-[10px] font-medium text-white hover:bg-raphael-danger">
               Deny

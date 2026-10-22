@@ -6,6 +6,7 @@ import { detectEnvironment } from '../environment/detector';
 import { createFolder, verifyFolderExists } from '../../automation/filesystem/createFolder';
 import { createFile, verifyFileExists } from '../../automation/filesystem/createFile';
 import { openApplication } from '../../automation/apps/openApp';
+import { installApplication, listInstalledApplications } from '../../automation/apps/installApp';
 import { closeApplication, openUrlInBrowser, buildSearchUrl } from '../../automation/apps/appLauncher';
 import { executeCommand } from '../../automation/shell/executeCommand';
 import { controlWindow, getActiveWindow } from '../desktop/windowManager';
@@ -109,6 +110,17 @@ export class Executor {
         this.activity.append(`Detected ${profile.os} (${profile.architecture}), shell: ${profile.shell}.`, 'success');
         return;
       }
+      case 'list_installed_applications': {
+        progress('Scanning installed applications...');
+        const res = await listInstalledApplications();
+        if (!res.success) {
+          this.activity.append(res.detail, 'warn');
+          throw new Error(res.detail);
+        }
+        const sample = res.apps.slice(0, 8).map((a) => a.name).join(', ');
+        this.activity.append(`${res.detail} (Including: ${sample}...)`, 'success');
+        return;
+      }
       case 'create_folder': {
         const name = String(step.params.name ?? '').trim();
         progress(`Creating folder "${name}"...`);
@@ -131,16 +143,22 @@ export class Executor {
       case 'open_application': {
         const appName = String(step.params.app ?? step.params.name ?? step.params.application ?? '').trim();
         const targetPath = step.params.path ? String(step.params.path).trim() : undefined;
-        progress(`Opening "${appName}"...`);
+        progress(`Searching for "${appName}" and launching...`);
+        if (this.cursor?.simulateHumanAction) {
+          await this.cursor.simulateHumanAction('search_and_open', appName);
+        } else {
+          this.cursor?.show('targeting', `RAPHAEL · SEARCHING "${appName.toUpperCase()}"`);
+        }
         progress(`Verifying "${appName}" actually started...`);
         const res = await openApplication(appName, targetPath);
-        // §17/§21/§22: a launch command not throwing is not success — only
-        // a verified running process is. Unverified launches are reported
-        // as real failures, never silently upgraded to "completed".
         if (!res.success) {
+          this.cursor?.setState('error', `RAPHAEL · ERROR`);
+          setTimeout(() => this.cursor?.hide(), 1200);
           this.activity.append(res.detail, 'error');
           throw new Error(res.detail);
         }
+        this.cursor?.setState('success', `RAPHAEL · OPENED`);
+        setTimeout(() => this.cursor?.hide(), 800);
         this.activity.append(res.detail, 'success');
         return;
       }
@@ -148,6 +166,28 @@ export class Executor {
         const appName = String(step.params.app ?? step.params.name ?? step.params.application ?? '').trim();
         progress(`Closing "${appName}"...`);
         const res = await closeApplication(appName);
+        if (!res.success) {
+          this.activity.append(res.detail, 'error');
+          throw new Error(res.detail);
+        }
+        this.activity.append(res.detail, 'success');
+        return;
+      }
+      case 'install_application': {
+        const appName = String(
+          step.params.name ?? step.params.app ?? step.params.package ?? step.params.application ?? ''
+        ).trim();
+        const manager = step.params.manager as any;
+        const packageId = step.params.id || step.params.packageId ? String(step.params.id || step.params.packageId).trim() : undefined;
+        progress(`Preparing to install "${appName}"...`);
+        const res = await installApplication(
+          {
+            appName,
+            manager,
+            packageId
+          },
+          (update) => progress(update)
+        );
         if (!res.success) {
           this.activity.append(res.detail, 'error');
           throw new Error(res.detail);
@@ -213,7 +253,12 @@ export class Executor {
           return;
         }
         this.requireCapability('windowControl', 'window control');
-        progress(`Positioning "${app}" (${position})...`);
+        progress(`Positioning "${app || 'window'}" (${position})...`);
+        if (this.cursor?.simulateHumanAction) {
+          await this.cursor.simulateHumanAction('organize_window', app, position);
+        } else {
+          this.cursor?.show('moving', `RAPHAEL · ORGANIZING ${position.toUpperCase()}`);
+        }
         progress('Verifying the window landed where expected...');
         // Win32-backed, verified by reading the window bounds back (§5/§8/§18).
         const res = await controlWindow(app, position as WindowOp, {
@@ -222,9 +267,13 @@ export class Executor {
           monitor: Number(step.params.monitor) || undefined
         });
         if (!res.success) {
+          this.cursor?.setState('error', `RAPHAEL · ERROR`);
+          setTimeout(() => this.cursor?.hide(), 1200);
           this.activity.append(res.detail, 'error');
           throw new Error(res.detail);
         }
+        this.cursor?.setState('success', `RAPHAEL · ORGANIZED`);
+        setTimeout(() => this.cursor?.hide(), 1000);
         this.activity.append(res.detail, 'success');
         return;
       }

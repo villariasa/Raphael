@@ -102,78 +102,70 @@ export function useResponseOrchestrator(): Orchestrator {
     setTranscriptText(r.message);
     setTtsNotice(null);
 
-    let audioBuffer: AudioBuffer | null = null;
-    let rawTimestamps = undefined;
-    let displayText = r.message;
-    let spokenScript = r.spokenScript;
-
-    // 1. Synthesize voice with the full spoken script (including classification)
-    if (r.voice.enabled && typeof window.raphael?.speak === 'function') {
-      try {
-        await resumeAudioContext();
-        const result: SpeakResult = await window.raphael.speak(r.spokenScript, voiceOverride);
-
-        // Interrupted while awaiting synthesis
-        if (currentIdRef.current !== r.responseId) return;
-
-        if (result && result.ok) {
-          rawTimestamps = result.timestamps;
-          audioBuffer = await decodeAudioBytes(result.audioBase64);
-          if (result.japaneseText) {
-            // Text animation is in Japanese when Japanese voice is selected
-            displayText = result.japaneseText;
-          }
-          if (result.spokenText) {
-            spokenScript = result.spokenText;
-          }
-        } else {
-          setTtsNotice('VOICE SYSTEM UNAVAILABLE');
-        }
-      } catch (err) {
-        console.warn('[useResponseOrchestrator] TTS synthesis error:', err);
-        setTtsNotice('VOICE SYSTEM UNAVAILABLE');
-      }
-    }
-
-    // Interrupted check
-    if (currentIdRef.current !== r.responseId) return;
-
-    // 2. Build ResponseTimeline
-    const effectiveDuration = audioBuffer
-      ? audioBuffer.duration
-      : estimateReadMs(spokenScript) / 1000;
-
-    const constructedTimeline = VoiceTimelineProvider.buildTimeline({
+    // 1. Immediately build and start visual response timeline (0ms UI latency)
+    const initialDuration = estimateReadMs(r.spokenScript) / 1000;
+    const initialTimeline = VoiceTimelineProvider.buildTimeline({
       responseId: r.responseId,
       responseType: r.responseType,
       label: r.systemLabel,
-      message: displayText,
-      spokenScript,
-      audioDuration: effectiveDuration,
-      rawTimestamps,
+      message: r.message,
+      spokenScript: r.spokenScript,
+      audioDuration: initialDuration,
       accent: r.accent,
       accent2: r.accent2
     });
+    initialTimeline.transcriptText = r.message;
 
-    // Subtitle transcript is the English translation
-    constructedTimeline.transcriptText = r.message;
-
-    setTimeline(constructedTimeline);
+    setTimeline(initialTimeline);
     setIsActive(true);
     setCurrentTimeSec(0);
+    markTextOnlyReveal(initialDuration * 1000);
+    startAnimationLoop(initialTimeline);
 
-    // 3. Play audio and drive visual timeline simultaneously
-    if (audioBuffer) {
-      setIsSpeaking(true);
-      playDecodedBuffer(audioBuffer, () => {
-        setIsSpeaking(false);
-      });
-    } else {
-      // Fallback wall-clock driver
-      markTextOnlyReveal(effectiveDuration * 1000);
+    // 2. Synthesize voice in parallel without blocking the UI response
+    if (r.voice.enabled && typeof window.raphael?.speak === 'function') {
+      resumeAudioContext()
+        .then(() => window.raphael.speak(r.spokenScript, voiceOverride))
+        .then(async (result: SpeakResult) => {
+          if (currentIdRef.current !== r.responseId) return;
+
+          if (result && result.ok) {
+            const audioBuffer = await decodeAudioBytes(result.audioBase64);
+            if (currentIdRef.current !== r.responseId || !audioBuffer) return;
+
+            const displayText = result.japaneseText || r.message;
+            const spokenScript = result.spokenText || r.spokenScript;
+
+            const refinedTimeline = VoiceTimelineProvider.buildTimeline({
+              responseId: r.responseId,
+              responseType: r.responseType,
+              label: r.systemLabel,
+              message: displayText,
+              spokenScript,
+              audioDuration: audioBuffer.duration,
+              rawTimestamps: result.timestamps,
+              accent: r.accent,
+              accent2: r.accent2
+            });
+            refinedTimeline.transcriptText = r.message;
+
+            setTimeline(refinedTimeline);
+            setIsSpeaking(true);
+            playDecodedBuffer(audioBuffer, () => {
+              setIsSpeaking(false);
+            });
+            startAnimationLoop(refinedTimeline);
+          } else {
+            setTtsNotice('VOICE SYSTEM UNAVAILABLE');
+          }
+        })
+        .catch((err) => {
+          console.warn('[useResponseOrchestrator] TTS synthesis error:', err);
+          if (currentIdRef.current === r.responseId) {
+            setTtsNotice('VOICE SYSTEM UNAVAILABLE');
+          }
+        });
     }
-
-    startAnimationLoop(constructedTimeline);
   }
 
   // Cleanup on unmount

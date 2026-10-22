@@ -13,6 +13,7 @@ import { TaskManager } from './core/executor/taskManager';
 import { ActivityStore } from './storage/activityStore';
 import { SettingsStore } from './storage/settingsStore';
 import { ConversationStore } from './storage/conversationStore';
+import { LearnedMemoryStore } from './storage/learnedMemory';
 import { CursorOverlay } from './ui/cursorOverlay';
 import { TtsManager } from './core/tts/ttsManager';
 import { SttManager } from './core/stt/sttManager';
@@ -26,11 +27,12 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 const activity = new ActivityStore(DATA_DIR);
 const settingsStore = new SettingsStore(DATA_DIR);
 const conversationStore = new ConversationStore(DATA_DIR);
+const learnedMemory = new LearnedMemoryStore(DATA_DIR);
 const permissionStore = new PermissionStore(DATA_DIR);
 const permissionGate = new PermissionGate(permissionStore);
 const ai = new OllamaProvider();
 const ollamaManager = new OllamaManager(ai, OLLAMA_MODEL);
-const planner = new Planner(ai, OLLAMA_MODEL, permissionStore);
+const planner = new Planner(ai, OLLAMA_MODEL, permissionStore, learnedMemory);
 const desktopEngine = new DesktopEngine(__dirname, (progress) => {
   broadcast(IPC.desktopStatusEvent, desktopEngine.getStatus());
   if (progress.stage === 'ready') activity.append('Desktop perception ready.', 'success');
@@ -198,6 +200,12 @@ app.whenReady().then(() => {
     sttManager.setup().catch((err) => activity.append(`Voice setup notice: ${err.message}`, 'warn'));
   }
 
+  // Study stored daily conversations and journals so repeated queries reply with 0ms latency
+  const studyStats = learnedMemory.studyHistory(conversationStore.getRecentTurns(500));
+  if (studyStats.newLearned > 0) {
+    activity.append(`Studied ${studyStats.studiedCount} past conversations — indexed ${studyStats.newLearned} patterns for instant reply.`, 'info');
+  }
+
   ipcMain.handle(IPC.getEnvironmentProfile, async () => {
     const profile = await detectEnvironment();
     return profile;
@@ -231,10 +239,21 @@ app.whenReady().then(() => {
     // Record the turn (user ask + Raphael's reply/plan) to persistent memory
     // + the daily journal. Outcomes are recorded separately once verified.
     conversationStore.recordTurn(text, plan.summary, plan.steps.map((s) => s.action));
+
+    // If it's a conversational reply (no action steps), learn immediately for 0ms recall
+    if (plan.steps.length === 0 && plan.summary) {
+      learnedMemory.learn(text, plan, true);
+    }
+
     const taskId = taskManager.start(plan, (update) => {
       broadcast(IPC.taskStatusEvent, update);
       if (update.done) {
-        conversationStore.recordOutcome(update.status, !update.error);
+        const success = !update.error && update.status === 'done';
+        conversationStore.recordOutcome(update.status, success);
+        // If an action plan succeeded, index it so identical future requests run instantly
+        if (success && plan.steps.length > 0) {
+          learnedMemory.learn(text, plan, true);
+        }
       }
     });
     return { taskId, plan };

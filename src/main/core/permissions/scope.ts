@@ -10,7 +10,7 @@ export function scopeKeyFor(action: SafeAction): string {
     case 'install_application':
     case 'open_application':
     case 'close_application':
-      return `${action.action}:${String(action.params.application ?? action.params.name ?? '*')}`;
+      return `${action.action}:${String(action.params.application ?? action.params.name ?? action.params.package ?? action.params.app ?? '*')}`;
     case 'open_url':
     case 'search_browser':
       // Coarse-grained: a per-URL/per-query grant would be meaningless

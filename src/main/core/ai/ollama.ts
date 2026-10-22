@@ -31,7 +31,16 @@ export class OllamaProvider implements AiProvider {
     const res = await fetch(`${this.baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, stream: false })
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: false,
+        options: {
+          num_predict: 120,
+          temperature: 0.3,
+          top_p: 0.9
+        }
+      })
     });
     if (!res.ok) {
       throw new Error(`Ollama request failed: ${res.status} ${res.statusText}`);

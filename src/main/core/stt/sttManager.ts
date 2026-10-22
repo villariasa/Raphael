@@ -81,7 +81,17 @@ export class SttManager {
     }
     this.pythonExe = py;
 
-    this.set('checking', 'Checking the speech engine (funasr)…');
+    this.set('checking', 'Checking the speech engine (funasr & torch)…');
+    const hasTorch = await this.hasModule(py, 'torch');
+    if (!hasTorch) {
+      this.set('installing_runtime', 'Installing PyTorch for speech engine (one-time)…');
+      const ok = await this.pipInstall(py, 'torch torchaudio --index-url https://download.pytorch.org/whl/cpu');
+      if (!ok) {
+        this.set('error', 'Couldn\'t install PyTorch for the speech engine. Typing still works.', { error: 'torch-install-failed' });
+        return false;
+      }
+    }
+
     const hasFunasr = await this.hasModule(py, 'funasr');
     if (!hasFunasr) {
       this.set('installing_runtime', 'Installing the speech engine (one-time, may take a while)…');
