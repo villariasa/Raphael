@@ -5,6 +5,8 @@ import type { PermissionDecision, VoiceOption } from '../shared/ipc';
 import { detectEnvironment } from './core/environment/detector';
 import { OllamaProvider } from './core/ai/ollama';
 import { OllamaManager } from './core/ai/ollamaManager';
+import { FreeApiProvider } from './core/ai/freeApiProvider';
+import { CompositeAiProvider } from './core/ai/compositeProvider';
 import { Planner } from './core/planner/planner';
 import { PermissionStore } from './core/permissions/permissionStore';
 import { PermissionGate } from './core/permissions/permissionGate';
@@ -18,6 +20,13 @@ import { CursorOverlay } from './ui/cursorOverlay';
 import { TtsManager } from './core/tts/ttsManager';
 import { SttManager } from './core/stt/sttManager';
 import { DesktopEngine } from './core/desktop/desktopEngine';
+import { loadDotEnv } from './core/env/loadDotEnv';
+
+// Picks up free-LLM-API keys (and RAPHAEL_MODEL/RAPHAEL_OLLAMA_URL) from a
+// .env file next to the project (dev) or the installed .exe (packaged),
+// without overriding anything already set in the real OS environment. Must
+// run before any other local import evaluates process.env at module scope.
+loadDotEnv([app.getAppPath(), path.dirname(app.getPath('exe'))]);
 
 const DATA_DIR = path.join(app.getPath('userData'), 'raphael-data');
 const OLLAMA_MODEL = process.env.RAPHAEL_MODEL ?? 'llama3.2';
@@ -30,8 +39,10 @@ const conversationStore = new ConversationStore(DATA_DIR);
 const learnedMemory = new LearnedMemoryStore(DATA_DIR);
 const permissionStore = new PermissionStore(DATA_DIR);
 const permissionGate = new PermissionGate(permissionStore);
-const ai = new OllamaProvider();
-const ollamaManager = new OllamaManager(ai, OLLAMA_MODEL);
+const ollama = new OllamaProvider();
+const freeApi = new FreeApiProvider();
+const ai = new CompositeAiProvider(freeApi, ollama, OLLAMA_MODEL);
+const ollamaManager = new OllamaManager(ollama, OLLAMA_MODEL);
 const planner = new Planner(ai, OLLAMA_MODEL, permissionStore, learnedMemory);
 const desktopEngine = new DesktopEngine(__dirname, (progress) => {
   broadcast(IPC.desktopStatusEvent, desktopEngine.getStatus());
@@ -215,12 +226,12 @@ app.whenReady().then(() => {
     const reachable = await ai.isReachable();
     const models = reachable ? await ai.listModels() : [];
     return {
-      provider: 'ollama' as const,
+      provider: (await freeApi.isReachable()) ? 'free-api' : ('ollama' as const),
       reachable,
-      baseUrl: ai.getBaseUrl(),
+      baseUrl: ollama.getBaseUrl(),
       models,
       setupProgress: ollamaManager.getProgress(),
-      error: reachable ? undefined : 'Ollama is not reachable at the configured address.'
+      error: reachable ? undefined : 'Neither a free LLM API key nor local Ollama is reachable.'
     };
   });
 

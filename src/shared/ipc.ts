@@ -46,7 +46,7 @@ export interface AiSetupProgress {
 }
 
 export interface AiStatus {
-  provider: 'ollama';
+  provider: 'ollama' | 'free-api';
   reachable: boolean;
   baseUrl: string;
   models: string[];

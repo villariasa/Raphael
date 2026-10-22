@@ -1,11 +1,11 @@
 import type { AiProvider, ChatMessage } from './provider';
 
-const DEFAULT_BASE_URL = process.env.RAPHAEL_OLLAMA_URL ?? 'http://127.0.0.1:11434';
-
 export class OllamaProvider implements AiProvider {
   readonly name = 'ollama';
 
-  constructor(private readonly baseUrl: string = DEFAULT_BASE_URL) {}
+  // Default read lazily (not at module-eval time) so a .env file loaded
+  // after this module is first required can still set RAPHAEL_OLLAMA_URL.
+  constructor(private readonly baseUrl: string = process.env.RAPHAEL_OLLAMA_URL ?? 'http://127.0.0.1:11434') {}
 
   async isReachable(): Promise<boolean> {
     try {

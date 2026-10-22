@@ -180,18 +180,30 @@ export class Executor {
         const manager = step.params.manager as any;
         const packageId = step.params.id || step.params.packageId ? String(step.params.id || step.params.packageId).trim() : undefined;
         progress(`Preparing to install "${appName}"...`);
+        if (this.cursor?.simulateHumanAction) {
+          await this.cursor.simulateHumanAction('install', appName);
+        } else {
+          this.cursor?.show('targeting', `RAPHAEL · INSTALLING "${appName.toUpperCase()}"`);
+        }
         const res = await installApplication(
           {
             appName,
             manager,
             packageId
           },
-          (update) => progress(update)
+          (update) => {
+            progress(update);
+            this.cursor?.show('executing', `RAPHAEL · ${update.toUpperCase().slice(0, 60)}`);
+          }
         );
         if (!res.success) {
+          this.cursor?.setState('error', `RAPHAEL · ERROR`);
+          setTimeout(() => this.cursor?.hide(), 1200);
           this.activity.append(res.detail, 'error');
           throw new Error(res.detail);
         }
+        this.cursor?.setState('success', `RAPHAEL · INSTALLED`);
+        setTimeout(() => this.cursor?.hide(), 800);
         this.activity.append(res.detail, 'success');
         return;
       }
